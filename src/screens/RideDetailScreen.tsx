@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, Modal, Pressable } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
-import { OSMView } from 'expo-osm-sdk';
+import { OSMView, OSMViewRef } from 'expo-osm-sdk';
 import { useRides } from '../hooks/useRides';
 import { formatDate, formatTime, formatDistance, formatDuration } from '../utils/formatters';
 
@@ -14,30 +14,136 @@ export function RideDetailScreen() {
   const navigation = useNavigation();
   const { getRide, deleteRide } = useRides();
   const [isPointsModalVisible, setIsPointsModalVisible] = React.useState(false);
+  const [isMapReady, setIsMapReady] = React.useState(false);
+  const mapRef = useRef<OSMViewRef>(null);
 
   const ride = getRide(route.params.rideId);
+  const rideCoordinates = ride?.coordinates ?? [];
 
-  if (!ride) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Поездка не найдена</Text>
-      </View>
-    );
-  }
+  const normalizedCoords = useMemo(() => {
+    const mapped = rideCoordinates
+      .map((c, index) => ({
+        latitude: Number(c.latitude),
+        longitude: Number(c.longitude),
+        timestamp: Number(c.timestamp),
+        originalIndex: index,
+      }))
+      .filter((c) => Number.isFinite(c.latitude) && Number.isFinite(c.longitude));
 
-  const polylineCoords = ride.coordinates.map((c) => ({
+    return mapped.sort((a, b) => {
+      const aHasTime = Number.isFinite(a.timestamp);
+      const bHasTime = Number.isFinite(b.timestamp);
+      if (aHasTime && bHasTime) {
+        return a.timestamp - b.timestamp;
+      }
+      return a.originalIndex - b.originalIndex;
+    });
+  }, [rideCoordinates]);
+
+  const polylineCoords = normalizedCoords.map((c) => ({
     latitude: c.latitude,
     longitude: c.longitude,
   }));
 
-  const centerLat =
-    ride.coordinates.reduce((sum, c) => sum + c.latitude, 0) /
-    ride.coordinates.length;
-  const centerLon =
-    ride.coordinates.reduce((sum, c) => sum + c.longitude, 0) /
-    ride.coordinates.length;
+  const routeMarkers = useMemo(() => {
+    if (normalizedCoords.length === 0) return [];
+    const start = normalizedCoords[0];
+    const end = normalizedCoords[normalizedCoords.length - 1];
+
+    if (normalizedCoords.length === 1) {
+      return [
+        {
+          id: 'single_point',
+          coordinate: { latitude: start.latitude, longitude: start.longitude },
+          title: 'Точка маршрута',
+        },
+      ];
+    }
+
+    return [
+      {
+        id: 'route_start',
+        coordinate: { latitude: start.latitude, longitude: start.longitude },
+        title: 'Старт',
+      },
+      {
+        id: 'route_end',
+        coordinate: { latitude: end.latitude, longitude: end.longitude },
+        title: 'Финиш',
+      },
+    ];
+  }, [normalizedCoords]);
+
+  const routeRegion = useMemo(() => {
+    if (normalizedCoords.length === 0) return null;
+
+    const lats = normalizedCoords.map((c) => c.latitude);
+    const lons = normalizedCoords.map((c) => c.longitude);
+
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+
+    const latitudeDelta = Math.max((maxLat - minLat) * 1.4, 0.0025);
+    const longitudeDelta = Math.max((maxLon - minLon) * 1.4, 0.0025);
+
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLon + maxLon) / 2,
+      latitudeDelta,
+      longitudeDelta,
+    };
+  }, [normalizedCoords]);
+
+  const routeZoom = useMemo(() => {
+    if (!routeRegion) return 14;
+    const maxDelta = Math.max(routeRegion.latitudeDelta, routeRegion.longitudeDelta);
+    if (maxDelta > 0.2) return 10;
+    if (maxDelta > 0.08) return 11;
+    if (maxDelta > 0.04) return 12;
+    if (maxDelta > 0.02) return 13;
+    if (maxDelta > 0.01) return 14;
+    if (maxDelta > 0.005) return 15;
+    return 16;
+  }, [routeRegion]);
+
+  const focusRoute = useCallback(async () => {
+    if (!isMapReady || !mapRef.current || !routeRegion) return;
+    try {
+      if (mapRef.current.isViewReady) {
+        const viewReady = await mapRef.current.isViewReady();
+        if (!viewReady) return;
+      }
+      await mapRef.current.animateToLocation(
+        routeRegion.latitude,
+        routeRegion.longitude,
+        routeZoom
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes('Map not ready') ||
+        message.includes('style not loaded')
+      ) {
+        return;
+      }
+      console.error('Failed to focus route on map:', error);
+    }
+  }, [isMapReady, routeRegion, routeZoom]);
+
+  useEffect(() => {
+    void focusRoute();
+  }, [focusRoute]);
+
+  // expo-osm-sdk (Android): setPolylines вызывается до готовности MapLibre — линии не рисуются и больше не применяются.
+  // Сбрасываем флаг при смене поездки и отдаём overlays только после onMapReady.
+  useEffect(() => {
+    setIsMapReady(false);
+  }, [route.params.rideId]);
 
   const handleDelete = () => {
+    if (!ride) return;
     Alert.alert(
       'Удалить поездку?',
       'Это действие нельзя отменить.',
@@ -55,26 +161,47 @@ export function RideDetailScreen() {
     );
   };
 
+  if (!ride) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Поездка не найдена</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.mapContainer}>
         <OSMView
+          key={ride.id}
+          ref={mapRef}
           style={styles.map}
-          initialCenter={{ latitude: centerLat, longitude: centerLon }}
-          initialZoom={16}
+          initialCenter={
+            routeRegion
+              ? { latitude: routeRegion.latitude, longitude: routeRegion.longitude }
+              : { latitude: 55.751244, longitude: 37.618423 }
+          }
+          initialZoom={14}
+          onMapReady={() => setIsMapReady(true)}
+          markers={isMapReady ? routeMarkers : []}
           polylines={
-            polylineCoords.length > 1
+            isMapReady && polylineCoords.length > 1
               ? [
                   {
                     id: 'ride_route',
                     coordinates: polylineCoords,
                     strokeColor: '#4CAF50',
-                    strokeWidth: 4,
+                    strokeWidth: 6,
                   },
                 ]
               : []
           }
         />
+        {polylineCoords.length < 2 && (
+          <View style={styles.emptyRouteOverlay}>
+            <Text style={styles.emptyRouteText}>Для маршрута нужно минимум 2 точки GPS</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.details}>
@@ -128,13 +255,15 @@ export function RideDetailScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Точки маршрута</Text>
             <ScrollView style={styles.pointsList}>
-              {ride.coordinates.map((point, index) => (
-                <View key={`${point.timestamp}-${index}`} style={styles.pointRow}>
+              {normalizedCoords.map((point, index) => (
+                <View key={`${point.originalIndex}-${index}`} style={styles.pointRow}>
                   <Text style={styles.pointIndex}>#{index + 1}</Text>
                   <View style={styles.pointMeta}>
                     <Text style={styles.pointText}>lat: {point.latitude.toFixed(6)}</Text>
                     <Text style={styles.pointText}>lon: {point.longitude.toFixed(6)}</Text>
-                    <Text style={styles.pointTime}>{formatTime(point.timestamp)}</Text>
+                    <Text style={styles.pointTime}>
+                      {Number.isFinite(point.timestamp) ? formatTime(point.timestamp) : 'время недоступно'}
+                    </Text>
                   </View>
                 </View>
               ))}
@@ -163,6 +292,20 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  emptyRouteOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.6)',
+  },
+  emptyRouteText: {
+    fontSize: 13,
+    color: '#666',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   details: {
     padding: 16,
