@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, Modal, Pressable } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { OSMView } from 'expo-osm-sdk';
 import { useRides } from '../hooks/useRides';
@@ -13,6 +13,7 @@ export function RideDetailScreen() {
   const route = useRoute<RouteProp<RideDetailParams, 'RideDetail'>>();
   const navigation = useNavigation();
   const { getRide, deleteRide } = useRides();
+  const [isPointsModalVisible, setIsPointsModalVisible] = React.useState(false);
 
   const ride = getRide(route.params.rideId);
 
@@ -94,8 +95,13 @@ export function RideDetailScreen() {
             <Text style={styles.statLabel}>Время</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{ride.coordinates.length}</Text>
-            <Text style={styles.statLabel}>Точек GPS</Text>
+            <Pressable
+              style={styles.pressableStat}
+              onPress={() => setIsPointsModalVisible(true)}
+            >
+              <Text style={styles.statValue}>{ride.coordinates.length}</Text>
+              <Text style={styles.statLabel}>Точек GPS (нажмите)</Text>
+            </Pressable>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>
@@ -111,6 +117,37 @@ export function RideDetailScreen() {
           Удалить поездку
         </Text>
       </View>
+
+      <Modal
+        visible={isPointsModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsPointsModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Точки маршрута</Text>
+            <ScrollView style={styles.pointsList}>
+              {ride.coordinates.map((point, index) => (
+                <View key={`${point.timestamp}-${index}`} style={styles.pointRow}>
+                  <Text style={styles.pointIndex}>#{index + 1}</Text>
+                  <View style={styles.pointMeta}>
+                    <Text style={styles.pointText}>lat: {point.latitude.toFixed(6)}</Text>
+                    <Text style={styles.pointText}>lon: {point.longitude.toFixed(6)}</Text>
+                    <Text style={styles.pointTime}>{formatTime(point.timestamp)}</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable
+              style={styles.closeButton}
+              onPress={() => setIsPointsModalVisible(false)}
+            >
+              <Text style={styles.closeButtonText}>Закрыть</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -154,6 +191,9 @@ const styles = StyleSheet.create({
     width: '50%',
     padding: 8,
   },
+  pressableStat: {
+    borderRadius: 12,
+  },
   statValue: {
     fontSize: 24,
     fontWeight: '700',
@@ -184,5 +224,63 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 16,
     color: '#666',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    maxHeight: '75%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    paddingBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 12,
+  },
+  pointsList: {
+    maxHeight: 420,
+  },
+  pointRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  pointIndex: {
+    width: 44,
+    fontWeight: '700',
+    color: '#4CAF50',
+  },
+  pointMeta: {
+    flex: 1,
+  },
+  pointText: {
+    fontSize: 14,
+    color: '#1a1a1a',
+  },
+  pointTime: {
+    fontSize: 12,
+    color: '#777',
+    marginTop: 2,
+  },
+  closeButton: {
+    marginTop: 12,
+    backgroundColor: '#4CAF50',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
   },
 });

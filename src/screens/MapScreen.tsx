@@ -17,7 +17,9 @@ export function MapScreen() {
     durationSeconds,
     currentLocation,
     permissionStatus,
+    isSimulating,
     start,
+    startSimulation,
     stop,
     reset,
     getStartTime,
@@ -124,6 +126,13 @@ export function MapScreen() {
     }
   };
 
+  const handleStartDemo = async () => {
+    const success = await startSimulation();
+    if (!success) {
+      Alert.alert('Демо недоступно', 'Остановите текущий трек или сбросьте запись.');
+    }
+  };
+
   const handleStop = () => {
     stop();
   };
@@ -223,6 +232,20 @@ export function MapScreen() {
       </View>
 
       <View style={[styles.buttonContainer, { bottom: 24 + insets.bottom }]}>
+        {__DEV__ && (
+          <TouchableOpacity
+            style={[
+              styles.demoButton,
+              (state !== 'idle' || permissionStatus === 'denied') && styles.disabled,
+            ]}
+            onPress={handleStartDemo}
+            disabled={state !== 'idle' || permissionStatus === 'denied'}
+          >
+            <Text style={styles.demoButtonText}>
+              {isSimulating ? 'Демо выполняется...' : 'Запустить демо-маршрут'}
+            </Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={[
             styles.deviceButton,
@@ -275,6 +298,21 @@ const styles = StyleSheet.create({
     minWidth: 200,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  demoButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    backgroundColor: '#6A5ACD',
+    marginBottom: 12,
+    minWidth: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  demoButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   deviceButtonText: {
     color: '#fff',

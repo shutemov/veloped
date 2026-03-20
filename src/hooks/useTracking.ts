@@ -19,10 +19,12 @@ export function useTracking() {
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [currentLocation, setCurrentLocation] = useState<Coordinate | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<'granted' | 'denied' | 'undetermined'>('undetermined');
+  const [isSimulating, setIsSimulating] = useState(false);
 
   const startTimeRef = useRef<number | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
+  const simulationTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     checkPermissions();
@@ -75,6 +77,55 @@ export function useTracking() {
     }
   };
 
+  const startDurationTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    timerRef.current = setInterval(() => {
+      if (startTimeRef.current) {
+        setDurationSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }
+    }, 1000);
+  };
+
+  const buildDemoRoute = (start: Coordinate): Coordinate[] => {
+    const dLat = 0.00018;
+    const dLon = 0.00023;
+    const waypoints: Coordinate[] = [
+      start,
+      { ...start, latitude: start.latitude + dLat * 2, longitude: start.longitude + dLon * 2 },
+      { ...start, latitude: start.latitude + dLat * 6, longitude: start.longitude + dLon * 3 },
+      { ...start, latitude: start.latitude + dLat * 8, longitude: start.longitude - dLon },
+      { ...start, latitude: start.latitude + dLat * 5, longitude: start.longitude - dLon * 4 },
+      { ...start, latitude: start.latitude + dLat * 2, longitude: start.longitude - dLon * 2 },
+      start,
+    ];
+
+    const route: Coordinate[] = [];
+    const stepsPerSegment = 6;
+
+    for (let i = 1; i < waypoints.length; i++) {
+      const from = waypoints[i - 1];
+      const to = waypoints[i];
+      for (let step = 0; step < stepsPerSegment; step++) {
+        const t = step / stepsPerSegment;
+        route.push({
+          latitude: from.latitude + (to.latitude - from.latitude) * t,
+          longitude: from.longitude + (to.longitude - from.longitude) * t,
+          timestamp: Date.now(),
+        });
+      }
+    }
+
+    route.push({
+      latitude: waypoints[waypoints.length - 1].latitude,
+      longitude: waypoints[waypoints.length - 1].longitude,
+      timestamp: Date.now(),
+    });
+
+    return route;
+  };
+
   const start = useCallback(async (): Promise<boolean> => {
     if (state !== 'idle') return false;
 
@@ -124,13 +175,66 @@ export function useTracking() {
       showsBackgroundLocationIndicator: true,
     });
 
-    timerRef.current = setInterval(() => {
-      if (startTimeRef.current) {
-        setDurationSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
-      }
-    }, 1000);
+    startDurationTimer();
 
     setState('tracking');
+    return true;
+  }, [state]);
+
+  const startSimulation = useCallback(async (): Promise<boolean> => {
+    if (state !== 'idle') return false;
+
+    const initialLocation =
+      (await getCurrentPosition()) ??
+      ({
+        latitude: 55.751244,
+        longitude: 37.618423,
+        timestamp: Date.now(),
+      } as Coordinate);
+
+    const route = buildDemoRoute(initialLocation);
+    let routeIndex = 0;
+    const simulatedCoords: Coordinate[] = [];
+
+    startTimeRef.current = Date.now();
+    setCoordinates([]);
+    setCurrentLocation(initialLocation);
+    setDistanceKm(0);
+    setDurationSeconds(0);
+    setIsSimulating(true);
+    setState('tracking');
+
+    startDurationTimer();
+
+    simulationTimerRef.current = setInterval(() => {
+      if (routeIndex >= route.length) {
+        void (async () => {
+          await cleanup();
+          setIsSimulating(false);
+          setState('finished');
+        })();
+        return;
+      }
+
+      const nextPoint = {
+        ...route[routeIndex],
+        timestamp: Date.now(),
+      };
+      routeIndex += 1;
+      simulatedCoords.push(nextPoint);
+
+      setCoordinates([...simulatedCoords]);
+      setCurrentLocation(nextPoint);
+
+      void AsyncStorage.setItem(
+        ACTIVE_RIDE_KEY,
+        JSON.stringify({
+          coordinates: simulatedCoords,
+          startTime: startTimeRef.current,
+        })
+      );
+    }, 1000);
+
     return true;
   }, [state]);
 
@@ -138,6 +242,7 @@ export function useTracking() {
     if (state !== 'tracking') return;
 
     cleanup();
+    setIsSimulating(false);
 
     const storedData = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
     if (storedData) {
@@ -155,6 +260,8 @@ export function useTracking() {
     setCoordinates([]);
     setDistanceKm(0);
     setDurationSeconds(0);
+    setCurrentLocation(null);
+    setIsSimulating(false);
     startTimeRef.current = null;
     await AsyncStorage.removeItem(ACTIVE_RIDE_KEY);
     setState('idle');
@@ -169,6 +276,11 @@ export function useTracking() {
     if (locationSubscriptionRef.current) {
       locationSubscriptionRef.current.remove();
       locationSubscriptionRef.current = null;
+    }
+
+    if (simulationTimerRef.current) {
+      clearInterval(simulationTimerRef.current);
+      simulationTimerRef.current = null;
     }
 
     const isTaskRunning = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
@@ -186,7 +298,9 @@ export function useTracking() {
     durationSeconds,
     currentLocation,
     permissionStatus,
+    isSimulating,
     start,
+    startSimulation,
     stop,
     reset,
     getStartTime,
