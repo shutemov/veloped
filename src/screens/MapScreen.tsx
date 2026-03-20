@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Alert, Text, TouchableOpacity } from 'react-native';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,36 @@ export function MapScreen() {
   } | null>(null);
   const [deviceLocation, setDeviceLocation] = useState<Coordinate | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
+
+  const animateToLocationSafe = useCallback(
+    async (latitude: number, longitude: number) => {
+      if (!cameraRef.current || !isMapReady) {
+        return;
+      }
+
+      try {
+        if (cameraRef.current.isViewReady) {
+          const viewReady = await cameraRef.current.isViewReady();
+          if (!viewReady) {
+            return;
+          }
+        }
+
+        await cameraRef.current.animateToLocation(latitude, longitude);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          message.includes('Map not ready') ||
+          message.includes('style not loaded')
+        ) {
+          return;
+        }
+        console.error('Failed to animate map camera:', error);
+      }
+    },
+    [isMapReady]
+  );
 
   useEffect(() => {
     initializeLocation();
@@ -46,12 +76,12 @@ export function MapScreen() {
 
   useEffect(() => {
     if (currentLocation && state === 'tracking' && cameraRef.current) {
-      void cameraRef.current.animateToLocation(
+      void animateToLocationSafe(
         currentLocation.latitude,
         currentLocation.longitude
       );
     }
-  }, [currentLocation, state]);
+  }, [animateToLocationSafe, currentLocation, state]);
 
   const initializeLocation = async () => {
     const location = await getCurrentPosition();
@@ -74,9 +104,7 @@ export function MapScreen() {
       }
 
       setDeviceLocation(location);
-      if (cameraRef.current) {
-        void cameraRef.current.animateToLocation(location.latitude, location.longitude);
-      }
+      void animateToLocationSafe(location.latitude, location.longitude);
     } catch (error) {
       console.error('Failed to show device location:', error);
       Alert.alert('Ошибка', 'Не удалось получить местоположение');
@@ -157,6 +185,7 @@ export function MapScreen() {
         style={styles.map}
         initialCenter={initialRegion}
         initialZoom={16}
+        onMapReady={() => setIsMapReady(true)}
         markers={
           deviceLocation
             ? [
