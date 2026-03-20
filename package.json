@@ -1,0 +1,35 @@
+{
+  "name": "veloped",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-navigation/bottom-tabs": "^7.15.5",
+    "@react-navigation/native": "^7.1.33",
+    "@react-navigation/native-stack": "^7.14.5",
+    "expo": "~55.0.6",
+    "expo-dev-client": "^55.0.16",
+    "expo-location": "^55.1.2",
+    "expo-osm-sdk": "^2.1.1",
+    "expo-status-bar": "~55.0.4",
+    "expo-task-manager": "^55.0.9",
+    "react": "19.2.0",
+    "react-native": "0.83.2",
+    "react-native-safe-area-context": "^5.7.0",
+    "react-native-screens": "^4.24.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~5.9.2"
+  },
+  "overrides": {
+    "@react-native-async-storage/async-storage": "2.2.0"
+  },
+  "private": true
+}
