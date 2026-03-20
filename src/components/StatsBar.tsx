@@ -5,11 +5,12 @@ import { formatDuration, formatDistance } from '../utils/formatters';
 interface StatsBarProps {
   distanceKm: number;
   durationSeconds: number;
+  topInset?: number;
 }
 
-export function StatsBar({ distanceKm, durationSeconds }: StatsBarProps) {
+export function StatsBar({ distanceKm, durationSeconds, topInset = 0 }: StatsBarProps) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { marginTop: 8 + topInset }]}>
       <View style={styles.stat}>
         <Text style={styles.value}>{formatDistance(distanceKm)}</Text>
         <Text style={styles.label}>Дистанция</Text>
@@ -31,7 +32,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 16,
     marginHorizontal: 16,
-    marginTop: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

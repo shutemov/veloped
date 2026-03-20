@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Alert, Text, TouchableOpacity } from 'react-native';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTracking } from '../hooks/useTracking';
 import { useRides } from '../hooks/useRides';
 import { StatsBar } from '../components/StatsBar';
@@ -8,6 +9,7 @@ import { TrackingButton } from '../components/TrackingButton';
 import { Coordinate, Ride } from '../types';
 
 export function MapScreen() {
+  const insets = useSafeAreaInsets();
   const {
     state,
     coordinates,
@@ -184,10 +186,14 @@ export function MapScreen() {
       />
 
       <View style={styles.overlay}>
-        <StatsBar distanceKm={distanceKm} durationSeconds={durationSeconds} />
+        <StatsBar
+          distanceKm={distanceKm}
+          durationSeconds={durationSeconds}
+          topInset={insets.top}
+        />
       </View>
 
-      <View style={styles.buttonContainer}>
+      <View style={[styles.buttonContainer, { bottom: 24 + insets.bottom }]}>
         <TouchableOpacity
           style={[
             styles.deviceButton,

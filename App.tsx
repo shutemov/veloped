@@ -11,7 +11,7 @@ export default function App() {
       <PermissionGate>
         <Navigation />
       </PermissionGate>
-      <StatusBar style="auto" />
+      <StatusBar style="auto" translucent={false} />
     </SafeAreaProvider>
   );
 }

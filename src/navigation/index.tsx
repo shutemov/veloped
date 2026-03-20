@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text, View, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MapScreen } from '../screens/MapScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
@@ -45,6 +46,8 @@ function HistoryStackNavigator() {
 }
 
 export function Navigation() {
+  const insets = useSafeAreaInsets();
+
   return (
     <NavigationContainer>
       <Tab.Navigator
@@ -52,12 +55,15 @@ export function Navigation() {
           tabBarActiveTintColor: '#4CAF50',
           tabBarInactiveTintColor: '#999',
           tabBarStyle: {
-            paddingBottom: 8,
+            paddingBottom: 8 + insets.bottom,
             paddingTop: 8,
-            height: 60,
+            height: 60 + insets.bottom,
           },
           tabBarLabelStyle: {
             fontSize: 12,
+          },
+          sceneStyle: {
+            paddingTop: insets.top,
           },
         }}
       >
