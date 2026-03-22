@@ -151,6 +151,7 @@ export function MapScreen() {
       durationSeconds,
       distanceKm,
       coordinates,
+      source: 'recorded',
     };
 
     try {

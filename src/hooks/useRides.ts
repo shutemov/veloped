@@ -4,6 +4,14 @@ import { Ride } from '../types';
 
 const RIDES_STORAGE_KEY = '@veloped/rides';
 
+function normalizeStoredRide(raw: Ride): Ride {
+  const source = raw.source === 'imported' ? 'imported' : 'recorded';
+  return {
+    ...raw,
+    source,
+  };
+}
+
 export function useRides() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
@@ -17,7 +25,8 @@ export function useRides() {
       const stored = await AsyncStorage.getItem(RIDES_STORAGE_KEY);
       if (stored) {
         const parsed: Ride[] = JSON.parse(stored);
-        setRides(parsed.sort((a, b) => b.startTime - a.startTime));
+        const normalized = parsed.map(normalizeStoredRide);
+        setRides(normalized.sort((a, b) => b.startTime - a.startTime));
       }
     } catch (error) {
       console.error('Failed to load rides:', error);
