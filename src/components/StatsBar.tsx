@@ -1,5 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
+
+/** Обводка и разделитель — один стиль, без «белых» подложек у колонок. */
+const STATS_BAR_BORDER = 'rgba(0, 0, 0, 0.1)';
 import { formatDuration, formatDistance } from '../utils/formatters';
 
 interface StatsBarProps {
@@ -27,20 +30,25 @@ export function StatsBar({ distanceKm, durationSeconds, topInset = 0 }: StatsBar
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(250, 250, 250, 0.8)',
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 16,
     marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: STATS_BAR_BORDER,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 4,
+    // elevation с полупрозрачным фоном даёт на Android белую «подушку» под дочерними блоками
+    elevation: Platform.OS === 'android' ? 0 : 4,
   },
   stat: {
     flex: 1,
     alignItems: 'center',
+    backgroundColor: 'transparent',
   },
   value: {
     fontSize: 28,
@@ -54,7 +62,9 @@ const styles = StyleSheet.create({
   },
   divider: {
     width: 1,
-    backgroundColor: '#e0e0e0',
-    marginHorizontal: 16,
+    alignSelf: 'stretch',
+    backgroundColor: STATS_BAR_BORDER,
+    marginVertical: 4,
+    marginHorizontal: 12,
   },
 });
