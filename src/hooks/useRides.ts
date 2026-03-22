@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ride } from '../types';
 
@@ -12,15 +19,23 @@ function normalizeStoredRide(raw: Ride): Ride {
   };
 }
 
-export function useRides() {
+export type RidesContextValue = {
+  rides: Ride[];
+  loading: boolean;
+  saveRide: (ride: Ride) => Promise<void>;
+  importRides: (newRides: Ride[]) => Promise<void>;
+  deleteRide: (id: string) => Promise<void>;
+  getRide: (id: string) => Ride | undefined;
+  refresh: () => Promise<void>;
+};
+
+const RidesContext = createContext<RidesContextValue | null>(null);
+
+function useRidesState(): RidesContextValue {
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadRides();
-  }, []);
-
-  const loadRides = async () => {
+  const loadRides = useCallback(async () => {
     try {
       const stored = await AsyncStorage.getItem(RIDES_STORAGE_KEY);
       if (stored) {
@@ -33,7 +48,11 @@ export function useRides() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadRides();
+  }, [loadRides]);
 
   const saveRide = useCallback(async (ride: Ride): Promise<void> => {
     try {
@@ -60,9 +79,9 @@ export function useRides() {
   const importRides = useCallback(async (newRides: Ride[]): Promise<void> => {
     if (newRides.length === 0) return;
     try {
-      const merged = [...newRides, ...rides];
+      const merged = [...newRides, ...rides].sort((a, b) => b.startTime - a.startTime);
       await AsyncStorage.setItem(RIDES_STORAGE_KEY, JSON.stringify(merged));
-      setRides(merged.sort((a, b) => b.startTime - a.startTime));
+      setRides(merged);
     } catch (error) {
       console.error('Failed to import rides:', error);
       throw error;
@@ -85,4 +104,17 @@ export function useRides() {
     getRide,
     refresh: loadRides,
   };
+}
+
+export function RidesProvider({ children }: { children: ReactNode }) {
+  const value = useRidesState();
+  return React.createElement(RidesContext.Provider, { value }, children);
+}
+
+export function useRides(): RidesContextValue {
+  const ctx = useContext(RidesContext);
+  if (ctx == null) {
+    throw new Error('useRides must be used within RidesProvider');
+  }
+  return ctx;
 }

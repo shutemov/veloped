@@ -1,5 +1,15 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, Modal, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Modal,
+  Pressable,
+  ActivityIndicator,
+  InteractionManager,
+} from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
@@ -8,6 +18,11 @@ import { ShareGpxHeaderButton } from '../components/ShareGpxHeaderButton';
 import { formatDate, formatTime, formatDistance, formatDuration } from '../utils/formatters';
 import { shareSingleRideAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
 import { importKindLabel, isImportedRide } from '../utils/rideSource';
+import {
+  prepareRideRouteGeometry,
+  RIDE_ROUTE_HEAVY_POINT_THRESHOLD,
+  type PreparedRouteGeometry,
+} from '../utils/prepareRideRouteGeometry';
 
 type RideDetailParams = {
   RideDetail: { rideId: string };
@@ -18,102 +33,62 @@ type RideDetailNavigationProp = NativeStackNavigationProp<RideDetailParams, 'Rid
 export function RideDetailScreen() {
   const route = useRoute<RouteProp<RideDetailParams, 'RideDetail'>>();
   const navigation = useNavigation<RideDetailNavigationProp>();
-  const { getRide, deleteRide } = useRides();
+  const { getRide, deleteRide, loading: ridesLoading } = useRides();
   const [isPointsModalVisible, setIsPointsModalVisible] = React.useState(false);
   const [isMapReady, setIsMapReady] = React.useState(false);
   const [exportingGpx, setExportingGpx] = useState(false);
+  const [routeGeometry, setRouteGeometry] = useState<PreparedRouteGeometry | null>(null);
   const mapRef = useRef<OSMViewRef>(null);
 
   const ride = getRide(route.params.rideId);
-  const rideCoordinates = ride?.coordinates ?? [];
+  const rideId = route.params.rideId;
+  const coordCount = ride?.coordinates.length ?? 0;
 
-  const normalizedCoords = useMemo(() => {
-    const mapped = rideCoordinates
-      .map((c, index) => ({
-        latitude: Number(c.latitude),
-        longitude: Number(c.longitude),
-        timestamp: Number(c.timestamp),
-        originalIndex: index,
-      }))
-      .filter((c) => Number.isFinite(c.latitude) && Number.isFinite(c.longitude));
-
-    return mapped.sort((a, b) => {
-      const aHasTime = Number.isFinite(a.timestamp);
-      const bHasTime = Number.isFinite(b.timestamp);
-      if (aHasTime && bHasTime) {
-        return a.timestamp - b.timestamp;
-      }
-      return a.originalIndex - b.originalIndex;
-    });
-  }, [rideCoordinates]);
-
-  const polylineCoords = normalizedCoords.map((c) => ({
-    latitude: c.latitude,
-    longitude: c.longitude,
-  }));
-
-  const routeMarkers = useMemo(() => {
-    if (normalizedCoords.length === 0) return [];
-    const start = normalizedCoords[0];
-    const end = normalizedCoords[normalizedCoords.length - 1];
-
-    if (normalizedCoords.length === 1) {
-      return [
-        {
-          id: 'single_point',
-          coordinate: { latitude: start.latitude, longitude: start.longitude },
-          title: 'Точка маршрута',
-        },
-      ];
+  useLayoutEffect(() => {
+    if (!ride) {
+      setRouteGeometry(null);
+      return;
     }
+    const coords = ride.coordinates;
+    if (coords.length === 0) {
+      setRouteGeometry(prepareRideRouteGeometry([]));
+      return;
+    }
+    if (coords.length < RIDE_ROUTE_HEAVY_POINT_THRESHOLD) {
+      setRouteGeometry(prepareRideRouteGeometry(coords));
+      return;
+    }
+    setRouteGeometry(null);
+  }, [rideId, ride]);
 
-    return [
-      {
-        id: 'route_start',
-        coordinate: { latitude: start.latitude, longitude: start.longitude },
-        title: 'Старт',
-      },
-      {
-        id: 'route_end',
-        coordinate: { latitude: end.latitude, longitude: end.longitude },
-        title: 'Финиш',
-      },
-    ];
-  }, [normalizedCoords]);
-
-  const routeRegion = useMemo(() => {
-    if (normalizedCoords.length === 0) return null;
-
-    const lats = normalizedCoords.map((c) => c.latitude);
-    const lons = normalizedCoords.map((c) => c.longitude);
-
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-
-    const latitudeDelta = Math.max((maxLat - minLat) * 1.4, 0.0025);
-    const longitudeDelta = Math.max((maxLon - minLon) * 1.4, 0.0025);
-
-    return {
-      latitude: (minLat + maxLat) / 2,
-      longitude: (minLon + maxLon) / 2,
-      latitudeDelta,
-      longitudeDelta,
+  useEffect(() => {
+    if (!ride || coordCount < RIDE_ROUTE_HEAVY_POINT_THRESHOLD) {
+      return;
+    }
+    let cancelled = false;
+    const coords = ride.coordinates;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        setRouteGeometry(prepareRideRouteGeometry(coords));
+      });
+    });
+    return () => {
+      cancelled = true;
+      handle.cancel?.();
     };
-  }, [normalizedCoords]);
+  }, [rideId, ride, coordCount]);
 
-  const routeZoom = useMemo(() => {
-    if (!routeRegion) return 14;
-    const maxDelta = Math.max(routeRegion.latitudeDelta, routeRegion.longitudeDelta);
-    if (maxDelta > 0.2) return 10;
-    if (maxDelta > 0.08) return 11;
-    if (maxDelta > 0.04) return 12;
-    if (maxDelta > 0.02) return 13;
-    if (maxDelta > 0.01) return 14;
-    if (maxDelta > 0.005) return 15;
-    return 16;
-  }, [routeRegion]);
+  const normalizedCoords = routeGeometry?.normalizedCoords ?? [];
+  const polylineCoords = routeGeometry?.polylineCoords ?? [];
+  const routeMarkers = routeGeometry?.routeMarkers ?? [];
+  const routeRegion = routeGeometry?.routeRegion ?? null;
+  const routeZoom = routeGeometry?.routeZoom ?? 14;
+
+  const isHeavyRouteLoading =
+    ride != null &&
+    coordCount >= RIDE_ROUTE_HEAVY_POINT_THRESHOLD &&
+    routeGeometry === null;
 
   const focusRoute = useCallback(async () => {
     if (!isMapReady || !mapRef.current || !routeRegion) return;
@@ -202,6 +177,14 @@ export function RideDetailScreen() {
     );
   };
 
+  if (ridesLoading && !ride) {
+    return (
+      <View style={styles.errorContainer}>
+        <ActivityIndicator size="large" color="#4CAF50" />
+      </View>
+    );
+  }
+
   if (!ride) {
     return (
       <View style={styles.errorContainer}>
@@ -213,35 +196,47 @@ export function RideDetailScreen() {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.mapContainer}>
-        <OSMView
-          key={ride.id}
-          ref={mapRef}
-          style={styles.map}
-          initialCenter={
-            routeRegion
-              ? { latitude: routeRegion.latitude, longitude: routeRegion.longitude }
-              : { latitude: 55.751244, longitude: 37.618423 }
-          }
-          initialZoom={14}
-          onMapReady={() => setIsMapReady(true)}
-          markers={isMapReady ? routeMarkers : []}
-          polylines={
-            isMapReady && polylineCoords.length > 1
-              ? [
-                  {
-                    id: 'ride_route',
-                    coordinates: polylineCoords,
-                    strokeColor: '#4CAF50',
-                    strokeWidth: 6,
-                  },
-                ]
-              : []
-          }
-        />
-        {polylineCoords.length < 2 && (
-          <View style={styles.emptyRouteOverlay}>
-            <Text style={styles.emptyRouteText}>Для маршрута нужно минимум 2 точки GPS</Text>
+        {isHeavyRouteLoading ? (
+          <View style={styles.routeCardLoading}>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Text style={styles.routeCardLoadingTitle}>Готовим маршрут…</Text>
+            <Text style={styles.routeCardLoadingHint}>
+              {coordCount.toLocaleString('ru-RU')} точек на карте
+            </Text>
           </View>
+        ) : (
+          <>
+            <OSMView
+              key={ride.id}
+              ref={mapRef}
+              style={styles.map}
+              initialCenter={
+                routeRegion
+                  ? { latitude: routeRegion.latitude, longitude: routeRegion.longitude }
+                  : { latitude: 55.751244, longitude: 37.618423 }
+              }
+              initialZoom={14}
+              onMapReady={() => setIsMapReady(true)}
+              markers={isMapReady ? routeMarkers : []}
+              polylines={
+                isMapReady && polylineCoords.length > 1
+                  ? [
+                      {
+                        id: 'ride_route',
+                        coordinates: polylineCoords,
+                        strokeColor: '#4CAF50',
+                        strokeWidth: 6,
+                      },
+                    ]
+                  : []
+              }
+            />
+            {polylineCoords.length < 2 && (
+              <View style={styles.emptyRouteOverlay}>
+                <Text style={styles.emptyRouteText}>Для маршрута нужно минимум 2 точки GPS</Text>
+              </View>
+            )}
+          </>
         )}
       </View>
 
@@ -368,6 +363,24 @@ const styles = StyleSheet.create({
   mapContainer: {
     height: 250,
     backgroundColor: '#e0e0e0',
+  },
+  routeCardLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: '#eceff1',
+  },
+  routeCardLoadingTitle: {
+    marginTop: 14,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#37474f',
+  },
+  routeCardLoadingHint: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#78909c',
   },
   map: {
     flex: 1,
