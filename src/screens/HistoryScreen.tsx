@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useState } from 'react';
+import React from 'react';
 import { Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -25,10 +25,10 @@ function HistoryScreenShell() {
   const navigation = useNavigation<NavigationProp>();
   const { recordedRides, activeTab, importRides, switchToImportedTab } =
     useHistoryScreenContext();
-  const [exporting, setExporting] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = React.useState(false);
+  const [importing, setImporting] = React.useState(false);
 
-  const handleShareGpx = useCallback(async () => {
+  const handleShareGpx = React.useCallback(async () => {
     if (recordedRides.length === 0) return;
     setExporting(true);
     try {
@@ -49,7 +49,7 @@ function HistoryScreenShell() {
     }
   }, [recordedRides]);
 
-  const handleImportGpx = useCallback(async () => {
+  const handleImportGpx = React.useCallback(async () => {
     setImporting(true);
     try {
       const pick = await DocumentPicker.getDocumentAsync({
@@ -84,7 +84,7 @@ function HistoryScreenShell() {
     }
   }, [importRides, switchToImportedTab]);
 
-  useLayoutEffect(() => {
+  React.useLayoutEffect(() => {
     navigation.setOptions({
       headerRight:
         activeTab === 'my'
@@ -121,7 +121,7 @@ export function HistoryScreen() {
   const { rides, loading, refresh, importRides } = useRides();
   const navigation = useNavigation<NavigationProp>();
 
-  const navigateToRideDetail = useCallback(
+  const navigateToRideDetail = React.useCallback(
     (ride: Ride) => {
       navigation.navigate('RideDetail', { rideId: ride.id });
     },

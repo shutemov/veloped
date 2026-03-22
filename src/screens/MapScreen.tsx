@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React from 'react';
 import {
   View,
   StyleSheet,
@@ -51,18 +51,18 @@ export function MapScreen() {
   } = useTracking();
 
   const { saveRide } = useRides();
-  const cameraRef = useRef<OSMViewRef>(null);
-  const [initialRegion, setInitialRegion] = useState<{
+  const cameraRef = React.useRef<OSMViewRef>(null);
+  const [initialRegion, setInitialRegion] = React.useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
-  const [mapMarker, setMapMarker] = useState<MapScreenMarker | null>(null);
-  const [isLocating, setIsLocating] = useState(false);
-  const [isMapReady, setIsMapReady] = useState(false);
-  const startMarkerPendingRef = useRef(false);
-  const autoPersistedForStartTimeRef = useRef<number | null>(null);
+  const [mapMarker, setMapMarker] = React.useState<MapScreenMarker | null>(null);
+  const [isLocating, setIsLocating] = React.useState(false);
+  const [isMapReady, setIsMapReady] = React.useState(false);
+  const startMarkerPendingRef = React.useRef(false);
+  const autoPersistedForStartTimeRef = React.useRef<number | null>(null);
 
-  const animateToLocationSafe = useCallback(
+  const animateToLocationSafe = React.useCallback(
     async (latitude: number, longitude: number) => {
       if (!cameraRef.current || !isMapReady) {
         return;
@@ -91,18 +91,18 @@ export function MapScreen() {
     [isMapReady]
   );
 
-  useEffect(() => {
+  React.useEffect(() => {
     initializeLocation();
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (state !== 'tracking') {
       startMarkerPendingRef.current = false;
     }
   }, [state]);
 
   // После «Старт»: один маркер в точке старта (первая координата трека), без обновления по GPS.
-  useEffect(() => {
+  React.useEffect(() => {
     if (state !== 'tracking' || !startMarkerPendingRef.current) {
       return;
     }
@@ -116,7 +116,7 @@ export function MapScreen() {
   }, [state, coordinates]);
 
   // После «Стоп»: маркер только в точке финиша.
-  useEffect(() => {
+  React.useEffect(() => {
     if (state === 'finished' && coordinates.length > 0) {
       setMapMarker({
         kind: 'finish',
@@ -126,7 +126,7 @@ export function MapScreen() {
   }, [state, coordinates]);
 
   // Сохранение/сброс: убираем старт/финиш; маркер «устройство» не трогаем при пустом треке в idle.
-  useEffect(() => {
+  React.useEffect(() => {
     if (state === 'idle' && coordinates.length === 0) {
       setMapMarker((m) =>
         m?.kind === 'start' || m?.kind === 'finish' ? null : m
@@ -134,7 +134,7 @@ export function MapScreen() {
     }
   }, [state, coordinates.length]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (currentLocation && state === 'tracking' && cameraRef.current) {
       void animateToLocationSafe(
         currentLocation.latitude,
@@ -143,7 +143,7 @@ export function MapScreen() {
     }
   }, [animateToLocationSafe, currentLocation, state]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (state === 'idle') {
       autoPersistedForStartTimeRef.current = null;
     }

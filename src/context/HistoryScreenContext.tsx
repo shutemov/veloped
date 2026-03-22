@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import React from 'react';
 import { Ride } from '../types';
 import { isImportedRide, isRecordedRide } from '../utils/rideSource';
 
@@ -18,7 +18,7 @@ type HistoryScreenContextValue = {
   switchToImportedTab: () => void;
 };
 
-const HistoryScreenContext = createContext<HistoryScreenContextValue | null>(null);
+const HistoryScreenContext = React.createContext<HistoryScreenContextValue | null>(null);
 
 type ProviderProps = {
   children: React.ReactNode;
@@ -37,62 +37,40 @@ export function HistoryScreenProvider({
   navigateToRideDetail,
   importRides,
 }: ProviderProps) {
-  const [activeTab, setActiveTabState] = useState<HistoryActiveTab>('my');
-  const switchToImportedRef = useRef<(() => void) | null>(null);
+  const [activeTab, setActiveTabState] = React.useState<HistoryActiveTab>('my');
+  const switchToImportedRef = React.useRef<(() => void) | null>(null);
 
-  const setActiveTab = useCallback((tab: HistoryActiveTab) => {
+  const setActiveTab = React.useCallback((tab: HistoryActiveTab) => {
     setActiveTabState(tab);
   }, []);
 
-  const registerSwitchToImportedTab = useCallback((fn: (() => void) | null) => {
+  const registerSwitchToImportedTab = React.useCallback((fn: (() => void) | null) => {
     switchToImportedRef.current = fn;
   }, []);
 
-  const switchToImportedTab = useCallback(() => {
+  const switchToImportedTab = React.useCallback(() => {
     switchToImportedRef.current?.();
   }, []);
 
   /** Записанные поездки: по умолчанию от новых к старым (для списка и экспорта GPX). */
-  const recordedRides = useMemo(
-    () =>
-      rides
-        .filter(isRecordedRide)
-        .sort((a, b) => b.startTime - a.startTime || a.id.localeCompare(b.id)),
-    [rides]
-  );
-  const importedRides = useMemo(
-    () => rides.filter(isImportedRide).sort((a, b) => b.startTime - a.startTime),
-    [rides]
-  );
+  const recordedRides = rides
+    .filter(isRecordedRide)
+    .sort((a, b) => b.startTime - a.startTime || a.id.localeCompare(b.id));
+  const importedRides = rides.filter(isImportedRide).sort((a, b) => b.startTime - a.startTime);
 
-  const value = useMemo(
-    () => ({
-      rides,
-      recordedRides,
-      importedRides,
-      loading,
-      refresh,
-      activeTab,
-      setActiveTab,
-      navigateToRideDetail,
-      importRides,
-      registerSwitchToImportedTab,
-      switchToImportedTab,
-    }),
-    [
-      rides,
-      recordedRides,
-      importedRides,
-      loading,
-      refresh,
-      activeTab,
-      setActiveTab,
-      navigateToRideDetail,
-      importRides,
-      registerSwitchToImportedTab,
-      switchToImportedTab,
-    ]
-  );
+  const value: HistoryScreenContextValue = {
+    rides,
+    recordedRides,
+    importedRides,
+    loading,
+    refresh,
+    activeTab,
+    setActiveTab,
+    navigateToRideDetail,
+    importRides,
+    registerSwitchToImportedTab,
+    switchToImportedTab,
+  };
 
   return (
     <HistoryScreenContext.Provider value={value}>{children}</HistoryScreenContext.Provider>
@@ -100,7 +78,7 @@ export function HistoryScreenProvider({
 }
 
 export function useHistoryScreenContext(): HistoryScreenContextValue {
-  const ctx = useContext(HistoryScreenContext);
+  const ctx = React.useContext(HistoryScreenContext);
   if (!ctx) {
     throw new Error('useHistoryScreenContext must be used within HistoryScreenProvider');
   }

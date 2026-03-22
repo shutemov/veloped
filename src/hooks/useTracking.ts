@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React from 'react';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,27 +13,27 @@ const GPS_OPTIONS = {
 };
 
 export function useTracking() {
-  const [state, setState] = useState<TrackingState>('idle');
-  const [coordinates, setCoordinates] = useState<Coordinate[]>([]);
-  const [distanceKm, setDistanceKm] = useState(0);
-  const [durationSeconds, setDurationSeconds] = useState(0);
-  const [currentLocation, setCurrentLocation] = useState<Coordinate | null>(null);
-  const [permissionStatus, setPermissionStatus] = useState<'granted' | 'denied' | 'undetermined'>('undetermined');
-  const [isSimulating, setIsSimulating] = useState(false);
+  const [state, setState] = React.useState<TrackingState>('idle');
+  const [coordinates, setCoordinates] = React.useState<Coordinate[]>([]);
+  const [distanceKm, setDistanceKm] = React.useState(0);
+  const [durationSeconds, setDurationSeconds] = React.useState(0);
+  const [currentLocation, setCurrentLocation] = React.useState<Coordinate | null>(null);
+  const [permissionStatus, setPermissionStatus] = React.useState<'granted' | 'denied' | 'undetermined'>('undetermined');
+  const [isSimulating, setIsSimulating] = React.useState(false);
 
-  const startTimeRef = useRef<number | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
-  const simulationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = React.useRef<number | null>(null);
+  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const locationSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
+  const simulationTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     checkPermissions();
     return () => {
       cleanup();
     };
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (coordinates.length > 0) {
       setDistanceKm(calculateTotalDistance(coordinates));
       setCurrentLocation(coordinates[coordinates.length - 1]);
@@ -138,7 +138,7 @@ export function useTracking() {
     return route;
   };
 
-  const start = useCallback(async (): Promise<boolean> => {
+  const start = React.useCallback(async (): Promise<boolean> => {
     if (state !== 'idle') return false;
 
     const hasPermission = await requestPermissions();
@@ -193,7 +193,7 @@ export function useTracking() {
     return true;
   }, [state]);
 
-  const startSimulation = useCallback(async (): Promise<boolean> => {
+  const startSimulation = React.useCallback(async (): Promise<boolean> => {
     if (state !== 'idle') return false;
 
     const initialLocation =
@@ -250,7 +250,7 @@ export function useTracking() {
     return true;
   }, [state]);
 
-  const stop = useCallback(async () => {
+  const stop = React.useCallback(async () => {
     if (state !== 'tracking') return;
 
     cleanup();
@@ -267,7 +267,7 @@ export function useTracking() {
     setState('finished');
   }, [state, coordinates.length]);
 
-  const reset = useCallback(async () => {
+  const reset = React.useCallback(async () => {
     cleanup();
     setCoordinates([]);
     setDistanceKm(0);
@@ -301,7 +301,7 @@ export function useTracking() {
     }
   };
 
-  const getStartTime = useCallback(() => startTimeRef.current, []);
+  const getStartTime = React.useCallback(() => startTimeRef.current, []);
 
   return {
     state,

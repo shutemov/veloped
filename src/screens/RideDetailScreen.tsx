@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Modal,
   Pressable,
   ActivityIndicator,
-  InteractionManager,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -20,6 +20,7 @@ import { shareSingleRideAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
 import { importKindLabel, isImportedRide } from '../utils/rideSource';
 import {
   prepareRideRouteGeometry,
+  calculateRouteFitZoom,
   RIDE_ROUTE_HEAVY_POINT_THRESHOLD,
   type PreparedRouteGeometry,
 } from '../utils/prepareRideRouteGeometry';
@@ -36,15 +37,18 @@ export function RideDetailScreen() {
   const { getRide, deleteRide, loading: ridesLoading } = useRides();
   const [isPointsModalVisible, setIsPointsModalVisible] = React.useState(false);
   const [isMapReady, setIsMapReady] = React.useState(false);
-  const [exportingGpx, setExportingGpx] = useState(false);
-  const [routeGeometry, setRouteGeometry] = useState<PreparedRouteGeometry | null>(null);
-  const mapRef = useRef<OSMViewRef>(null);
+  const [exportingGpx, setExportingGpx] = React.useState(false);
+  const [routeGeometry, setRouteGeometry] = React.useState<PreparedRouteGeometry | null>(null);
+  const [mapViewport, setMapViewport] = React.useState<{ width: number; height: number } | null>(
+    null
+  );
+  const mapRef = React.useRef<OSMViewRef>(null);
 
   const ride = getRide(route.params.rideId);
   const rideId = route.params.rideId;
   const coordCount = ride?.coordinates.length ?? 0;
 
-  useLayoutEffect(() => {
+  React.useLayoutEffect(() => {
     if (!ride) {
       setRouteGeometry(null);
       return;
@@ -61,43 +65,78 @@ export function RideDetailScreen() {
     setRouteGeometry(null);
   }, [rideId, ride]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!ride || coordCount < RIDE_ROUTE_HEAVY_POINT_THRESHOLD) {
       return;
     }
     let cancelled = false;
     const coords = ride.coordinates;
-    const handle = InteractionManager.runAfterInteractions(() => {
+    const g = globalThis as typeof globalThis & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const idle = g.requestIdleCallback;
+    const cancelIdle = g.cancelIdleCallback;
+    const run = () => {
       requestAnimationFrame(() => {
         if (cancelled) return;
         setRouteGeometry(prepareRideRouteGeometry(coords));
       });
-    });
+    };
+    let idleId: number | undefined;
+    const timeoutId = setTimeout(() => {
+      if (typeof idle === 'function') {
+        idleId = idle(run, { timeout: 400 });
+      } else {
+        run();
+      }
+    }, 0);
     return () => {
       cancelled = true;
-      handle.cancel?.();
+      clearTimeout(timeoutId);
+      if (idleId != null && typeof cancelIdle === 'function') {
+        cancelIdle(idleId);
+      }
     };
   }, [rideId, ride, coordCount]);
 
   const normalizedCoords = routeGeometry?.normalizedCoords ?? [];
   const polylineCoords = routeGeometry?.polylineCoords ?? [];
   const routeMarkers = routeGeometry?.routeMarkers ?? [];
+  const routeBounds = routeGeometry?.routeBounds ?? null;
   const routeRegion = routeGeometry?.routeRegion ?? null;
-  const routeZoom = routeGeometry?.routeZoom ?? 14;
+  const fallbackRouteZoom = routeGeometry?.routeZoom ?? 14;
+  const routeZoom =
+    routeBounds && mapViewport
+      ? calculateRouteFitZoom(routeBounds, mapViewport, 24)
+      : fallbackRouteZoom;
 
   const isHeavyRouteLoading =
     ride != null &&
     coordCount >= RIDE_ROUTE_HEAVY_POINT_THRESHOLD &&
     routeGeometry === null;
 
-  const focusRoute = useCallback(async () => {
+  const handleMapLayout = React.useCallback((event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    if (width <= 0 || height <= 0) return;
+    setMapViewport((prev) => {
+      if (prev && prev.width === width && prev.height === height) {
+        return prev;
+      }
+      return { width, height };
+    });
+  }, []);
+
+  const focusRoute = React.useCallback(async () => {
     if (!isMapReady || !mapRef.current || !routeRegion) return;
+    const map = mapRef.current;
     try {
-      if (mapRef.current.isViewReady) {
-        const viewReady = await mapRef.current.isViewReady();
+      if (map.isViewReady) {
+        const viewReady = await map.isViewReady();
         if (!viewReady) return;
       }
-      await mapRef.current.animateToLocation(
+      if (typeof map.animateToLocation !== 'function') return;
+      await map.animateToLocation(
         routeRegion.latitude,
         routeRegion.longitude,
         routeZoom
@@ -114,17 +153,17 @@ export function RideDetailScreen() {
     }
   }, [isMapReady, routeRegion, routeZoom]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     void focusRoute();
   }, [focusRoute]);
 
   // expo-osm-sdk (Android): setPolylines вызывается до готовности MapLibre — линии не рисуются и больше не применяются.
   // Сбрасываем флаг при смене поездки и отдаём overlays только после onMapReady.
-  useEffect(() => {
+  React.useEffect(() => {
     setIsMapReady(false);
   }, [route.params.rideId]);
 
-  const handleShareGpx = useCallback(async () => {
+  const handleShareGpx = React.useCallback(async () => {
     if (!ride) return;
     setExportingGpx(true);
     try {
@@ -142,7 +181,7 @@ export function RideDetailScreen() {
     }
   }, [ride]);
 
-  useLayoutEffect(() => {
+  React.useLayoutEffect(() => {
     if (!ride) {
       navigation.setOptions({ headerRight: undefined });
       return;
@@ -195,7 +234,7 @@ export function RideDetailScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <View style={styles.mapContainer}>
+      <View style={styles.mapContainer} onLayout={handleMapLayout}>
         {isHeavyRouteLoading ? (
           <View style={styles.routeCardLoading}>
             <ActivityIndicator size="large" color="#4CAF50" />
@@ -215,7 +254,7 @@ export function RideDetailScreen() {
                   ? { latitude: routeRegion.latitude, longitude: routeRegion.longitude }
                   : { latitude: 55.751244, longitude: 37.618423 }
               }
-              initialZoom={14}
+              initialZoom={routeRegion ? routeZoom : 14}
               onMapReady={() => setIsMapReady(true)}
               markers={isMapReady ? routeMarkers : []}
               polylines={

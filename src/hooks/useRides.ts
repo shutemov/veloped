@@ -1,11 +1,5 @@
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from 'react';
+import React from 'react';
+import type { ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ride } from '../types';
 
@@ -29,13 +23,13 @@ export type RidesContextValue = {
   refresh: () => Promise<void>;
 };
 
-const RidesContext = createContext<RidesContextValue | null>(null);
+const RidesContext = React.createContext<RidesContextValue | null>(null);
 
 function useRidesState(): RidesContextValue {
-  const [rides, setRides] = useState<Ride[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rides, setRides] = React.useState<Ride[]>([]);
+  const [loading, setLoading] = React.useState(true);
 
-  const loadRides = useCallback(async () => {
+  const loadRides = React.useCallback(async () => {
     try {
       const stored = await AsyncStorage.getItem(RIDES_STORAGE_KEY);
       if (stored) {
@@ -50,11 +44,11 @@ function useRidesState(): RidesContextValue {
     }
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     void loadRides();
   }, [loadRides]);
 
-  const saveRide = useCallback(async (ride: Ride): Promise<void> => {
+  const saveRide = React.useCallback(async (ride: Ride): Promise<void> => {
     try {
       const newRides = [ride, ...rides];
       await AsyncStorage.setItem(RIDES_STORAGE_KEY, JSON.stringify(newRides));
@@ -65,7 +59,7 @@ function useRidesState(): RidesContextValue {
     }
   }, [rides]);
 
-  const deleteRide = useCallback(async (id: string): Promise<void> => {
+  const deleteRide = React.useCallback(async (id: string): Promise<void> => {
     try {
       const newRides = rides.filter((ride) => ride.id !== id);
       await AsyncStorage.setItem(RIDES_STORAGE_KEY, JSON.stringify(newRides));
@@ -76,7 +70,7 @@ function useRidesState(): RidesContextValue {
     }
   }, [rides]);
 
-  const importRides = useCallback(async (newRides: Ride[]): Promise<void> => {
+  const importRides = React.useCallback(async (newRides: Ride[]): Promise<void> => {
     if (newRides.length === 0) return;
     try {
       const merged = [...newRides, ...rides].sort((a, b) => b.startTime - a.startTime);
@@ -88,7 +82,7 @@ function useRidesState(): RidesContextValue {
     }
   }, [rides]);
 
-  const getRide = useCallback(
+  const getRide = React.useCallback(
     (id: string): Ride | undefined => {
       return rides.find((ride) => ride.id === id);
     },
@@ -112,7 +106,7 @@ export function RidesProvider({ children }: { children: ReactNode }) {
 }
 
 export function useRides(): RidesContextValue {
-  const ctx = useContext(RidesContext);
+  const ctx = React.useContext(RidesContext);
   if (ctx == null) {
     throw new Error('useRides must be used within RidesProvider');
   }

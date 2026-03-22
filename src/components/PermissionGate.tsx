@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Linking, Platform } from 'react-native';
 import * as Location from 'expo-location';
 
@@ -7,9 +7,9 @@ interface PermissionGateProps {
 }
 
 export function PermissionGate({ children }: PermissionGateProps) {
-  const [status, setStatus] = useState<'checking' | 'granted' | 'denied'>('checking');
+  const [status, setStatus] = React.useState<'checking' | 'granted' | 'denied'>('checking');
 
-  useEffect(() => {
+  React.useEffect(() => {
     checkPermission();
   }, []);
 

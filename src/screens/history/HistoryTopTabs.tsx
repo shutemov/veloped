@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React from 'react';
 import {
   View,
   FlatList,
@@ -26,17 +26,15 @@ function MyRidesPage({
   navigateToRideDetail: (ride: Ride) => void;
 }) {
   const { recordedRides, loading, refresh } = useHistoryScreenContext();
-  const [sortMode, setSortMode] = useState<MyRidesSortMode>('date');
+  const [sortMode, setSortMode] = React.useState<MyRidesSortMode>('date');
 
-  const displayedRides = useMemo(() => {
-    if (sortMode === 'date') {
-      return recordedRides;
-    }
-    return [...recordedRides].sort(
-      (a, b) =>
-        b.distanceKm - a.distanceKm || b.startTime - a.startTime || a.id.localeCompare(b.id)
-    );
-  }, [recordedRides, sortMode]);
+  const displayedRides =
+    sortMode === 'date'
+      ? recordedRides
+      : [...recordedRides].sort(
+          (a, b) =>
+            b.distanceKm - a.distanceKm || b.startTime - a.startTime || a.id.localeCompare(b.id)
+        );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -155,12 +153,12 @@ export function HistoryTopTabs() {
   const { width } = useWindowDimensions();
   const { setActiveTab, navigateToRideDetail, registerSwitchToImportedTab } =
     useHistoryScreenContext();
-  const scrollRef = useRef<ScrollView>(null);
-  const [pageIndex, setPageIndex] = useState(0);
-  const pageIndexRef = useRef(pageIndex);
+  const scrollRef = React.useRef<ScrollView>(null);
+  const [pageIndex, setPageIndex] = React.useState(0);
+  const pageIndexRef = React.useRef(pageIndex);
   pageIndexRef.current = pageIndex;
 
-  const goToPage = useCallback(
+  const goToPage = React.useCallback(
     (index: number) => {
       setPageIndex(index);
       setActiveTab(index === 0 ? 'my' : 'imported');
@@ -169,19 +167,19 @@ export function HistoryTopTabs() {
     [width, setActiveTab]
   );
 
-  useEffect(() => {
+  React.useEffect(() => {
     registerSwitchToImportedTab(() => goToPage(1));
     return () => registerSwitchToImportedTab(null);
   }, [goToPage, registerSwitchToImportedTab]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     scrollRef.current?.scrollTo({
       x: pageIndexRef.current * width,
       animated: false,
     });
   }, [width]);
 
-  const onMomentumScrollEnd = useCallback(
+  const onMomentumScrollEnd = React.useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       const x = e.nativeEvent.contentOffset.x;
       const next = Math.round(x / Math.max(width, 1));

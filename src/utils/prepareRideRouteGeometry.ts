@@ -17,6 +17,12 @@ export type PreparedRouteGeometry = {
   normalizedCoords: NormalizedCoord[];
   polylineCoords: { latitude: number; longitude: number }[];
   routeMarkers: RouteMarker[];
+  routeBounds: {
+    minLat: number;
+    maxLat: number;
+    minLon: number;
+    maxLon: number;
+  } | null;
   routeRegion: {
     latitude: number;
     longitude: number;
@@ -28,6 +34,38 @@ export type PreparedRouteGeometry = {
 
 /** Маршруты с большим числом точек обрабатываем асинхронно, чтобы не блокировать первый кадр экрана. */
 export const RIDE_ROUTE_HEAVY_POINT_THRESHOLD = 500;
+
+function clampLatitude(latitude: number): number {
+  return Math.max(Math.min(latitude, 85.05112878), -85.05112878);
+}
+
+function mercatorY(latitude: number): number {
+  const latRad = (clampLatitude(latitude) * Math.PI) / 180;
+  return Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+}
+
+export function calculateRouteFitZoom(
+  bounds: PreparedRouteGeometry['routeBounds'],
+  viewport: { width: number; height: number },
+  padding = 24
+): number {
+  if (!bounds) return 14;
+
+  const usableWidth = Math.max(viewport.width - padding * 2, 80);
+  const usableHeight = Math.max(viewport.height - padding * 2, 80);
+
+  const lonSpan = Math.max(bounds.maxLon - bounds.minLon, 0.0002);
+  const lonZoom = Math.log2((usableWidth * 360) / (lonSpan * 256));
+
+  const mercatorSpan = Math.max(
+    Math.abs(mercatorY(bounds.maxLat) - mercatorY(bounds.minLat)),
+    0.00001
+  );
+  const latZoom = Math.log2((usableHeight * 2 * Math.PI) / (mercatorSpan * 256));
+
+  const zoom = Math.min(lonZoom, latZoom);
+  return Math.max(2, Math.min(18, zoom));
+}
 
 export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): PreparedRouteGeometry {
   const mapped = rideCoordinates
@@ -81,6 +119,7 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
     }
   }
 
+  let routeBounds: PreparedRouteGeometry['routeBounds'] = null;
   let routeRegion: PreparedRouteGeometry['routeRegion'] = null;
   if (normalizedCoords.length > 0) {
     const lats = normalizedCoords.map((c) => c.latitude);
@@ -89,6 +128,7 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
     const maxLon = Math.max(...lons);
+    routeBounds = { minLat, maxLat, minLon, maxLon };
     const latitudeDelta = Math.max((maxLat - minLat) * 1.4, 0.0025);
     const longitudeDelta = Math.max((maxLon - minLon) * 1.4, 0.0025);
     routeRegion = {
@@ -115,6 +155,7 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
     normalizedCoords,
     polylineCoords,
     routeMarkers,
+    routeBounds,
     routeRegion,
     routeZoom,
   };
