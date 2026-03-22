@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTracking } from '../hooks/useTracking';
+import { useImuTracking } from '../hooks/useImuTracking';
 import { useRides } from '../hooks/useRides';
 import { StatsBar } from '../components/StatsBar';
 import { TrackingButton } from '../components/TrackingButton';
@@ -51,6 +52,15 @@ export function MapScreen() {
   } = useTracking();
 
   const { saveRide } = useRides();
+  const {
+    status: imuStatus,
+    lastSample: imuLastSample,
+    lastSampleAt: imuLastSampleAt,
+    sampleCount: imuSampleCount,
+    start: startImu,
+    stop: stopImu,
+    isRunning: isImuRunning,
+  } = useImuTracking();
   const cameraRef = React.useRef<OSMViewRef>(null);
   const [initialRegion, setInitialRegion] = React.useState<{
     latitude: number;
@@ -249,6 +259,28 @@ export function MapScreen() {
     stop();
   };
 
+  const handleToggleImu = async () => {
+    if (isImuRunning) {
+      stopImu();
+      return;
+    }
+
+    const started = await startImu();
+    if (!started) {
+      Alert.alert('IMU недоступен', 'Акселерометр не найден или не отправляет данные.');
+    }
+  };
+
+  const imuStatusLabel =
+    imuStatus === 'off'
+      ? 'off'
+      : imuStatus === 'listening'
+      ? 'listening'
+      : 'no_data';
+  const imuLastSampleTimeText = imuLastSampleAt
+    ? new Date(imuLastSampleAt).toLocaleTimeString()
+    : '—';
+
   const polylineCoords = coordinates.map((c) => ({
     latitude: c.latitude,
     longitude: c.longitude,
@@ -340,6 +372,28 @@ export function MapScreen() {
 
       <View style={[styles.buttonContainer, { bottom: 24 + insets.bottom }]}>
         {__DEV__ && (
+          <View style={styles.imuPanel}>
+            <Text style={styles.imuTitle}>IMU debug</Text>
+            <Text style={styles.imuText}>status: {imuStatusLabel}</Text>
+            <Text style={styles.imuText}>samples: {imuSampleCount}</Text>
+            <Text style={styles.imuText}>last: {imuLastSampleTimeText}</Text>
+            <Text style={styles.imuText}>
+              x/y/z:{' '}
+              {imuLastSample
+                ? `${imuLastSample.x.toFixed(3)} / ${imuLastSample.y.toFixed(3)} / ${imuLastSample.z.toFixed(3)}`
+                : '—'}
+            </Text>
+            <TouchableOpacity
+              style={[styles.imuButton, isImuRunning && styles.imuButtonStop]}
+              onPress={handleToggleImu}
+            >
+              <Text style={styles.imuButtonText}>
+                {isImuRunning ? 'IMU Stop' : 'IMU Start'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {__DEV__ && (
           <TouchableOpacity
             style={[
               styles.demoButton,
@@ -421,6 +475,43 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  imuPanel: {
+    width: 260,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  imuTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 6,
+  },
+  imuText: {
+    fontSize: 12,
+    color: '#333',
+    marginBottom: 2,
+  },
+  imuButton: {
+    marginTop: 8,
+    borderRadius: 10,
+    backgroundColor: '#2E7D32',
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imuButtonStop: {
+    backgroundColor: '#c62828',
+  },
+  imuButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 13,
   },
   disabled: {
     backgroundColor: '#ccc',
