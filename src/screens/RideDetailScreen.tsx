@@ -8,6 +8,7 @@ import {
   Modal,
   Pressable,
   ActivityIndicator,
+  useWindowDimensions,
   type LayoutChangeEvent,
 } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
@@ -24,6 +25,7 @@ import {
   RIDE_ROUTE_HEAVY_POINT_THRESHOLD,
   type PreparedRouteGeometry,
 } from '../utils/prepareRideRouteGeometry';
+import { RideDetailInfoSheet } from '../components/RideDetailInfoSheet';
 
 type RideDetailParams = {
   RideDetail: { rideId: string };
@@ -32,6 +34,7 @@ type RideDetailParams = {
 type RideDetailNavigationProp = NativeStackNavigationProp<RideDetailParams, 'RideDetail'>;
 
 export function RideDetailScreen() {
+  const { height: windowHeight } = useWindowDimensions();
   const route = useRoute<RouteProp<RideDetailParams, 'RideDetail'>>();
   const navigation = useNavigation<RideDetailNavigationProp>();
   const { getRide, deleteRide, loading: ridesLoading } = useRides();
@@ -232,8 +235,27 @@ export function RideDetailScreen() {
     );
   }
 
+  const sheetExpandedHeight = Math.min(
+    Math.max(Math.round(windowHeight * 0.5), 300),
+    480
+  );
+
+  const collapsedSummary = (
+    <View style={styles.collapsedStatsRow}>
+      <View style={styles.collapsedStat}>
+        <Text style={styles.collapsedStatValue}>{formatDistance(ride.distanceKm)}</Text>
+        <Text style={styles.collapsedStatLabel}>Дистанция</Text>
+      </View>
+      <View style={styles.collapsedStatDivider} />
+      <View style={styles.collapsedStat}>
+        <Text style={styles.collapsedStatValue}>{formatDuration(ride.durationSeconds)}</Text>
+        <Text style={styles.collapsedStatLabel}>Время</Text>
+      </View>
+    </View>
+  );
+
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.screenRoot}>
       <View style={styles.mapContainer} onLayout={handleMapLayout}>
         {isHeavyRouteLoading ? (
           <View style={styles.routeCardLoading}>
@@ -279,84 +301,90 @@ export function RideDetailScreen() {
         )}
       </View>
 
-      <View style={styles.details}>
-        <View style={styles.dateRow}>
-          <Text style={styles.date}>{formatDate(ride.startTime)}</Text>
-          <Text style={styles.time}>
-            {formatTime(ride.startTime)} — {formatTime(ride.endTime)}
-          </Text>
-        </View>
-
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{formatDistance(ride.distanceKm)}</Text>
-            <Text style={styles.statLabel}>Дистанция</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{formatDuration(ride.durationSeconds)}</Text>
-            <Text style={styles.statLabel}>Время</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Pressable
-              style={styles.pressableStat}
-              onPress={() => setIsPointsModalVisible(true)}
-            >
-              <Text style={styles.statValue}>{ride.coordinates.length}</Text>
-              <Text style={styles.statLabel}>Точек GPS (нажмите)</Text>
-            </Pressable>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>
-              {ride.durationSeconds > 0
-                ? ((ride.distanceKm / ride.durationSeconds) * 3600).toFixed(1)
-                : '0'}
+      <RideDetailInfoSheet
+        key={ride.id}
+        expandedHeight={sheetExpandedHeight}
+        collapsedSummary={collapsedSummary}
+      >
+        <View style={styles.details}>
+          <View style={styles.dateRow}>
+            <Text style={styles.date}>{formatDate(ride.startTime)}</Text>
+            <Text style={styles.time}>
+              {formatTime(ride.startTime)} — {formatTime(ride.endTime)}
             </Text>
-            <Text style={styles.statLabel}>Ср. скорость, км/ч</Text>
           </View>
-        </View>
 
-        {isImportedRide(ride) && (
-          <View style={styles.sourceBlock}>
-            <Text style={styles.sourceTitle}>Источник</Text>
-            <View style={styles.sourceRow}>
-              <Text style={styles.sourceLabel}>Приложение</Text>
-              <Text style={styles.sourceValue}>
-                {ride.sourceAppName?.trim() || 'Неизвестно'}
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{formatDistance(ride.distanceKm)}</Text>
+              <Text style={styles.statLabel}>Дистанция</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{formatDuration(ride.durationSeconds)}</Text>
+              <Text style={styles.statLabel}>Время</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Pressable
+                style={styles.pressableStat}
+                onPress={() => setIsPointsModalVisible(true)}
+              >
+                <Text style={styles.statValue}>{ride.coordinates.length}</Text>
+                <Text style={styles.statLabel}>Точек GPS (нажмите)</Text>
+              </Pressable>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>
+                {ride.durationSeconds > 0
+                  ? ((ride.distanceKm / ride.durationSeconds) * 3600).toFixed(1)
+                  : '0'}
               </Text>
+              <Text style={styles.statLabel}>Ср. скорость, км/ч</Text>
             </View>
-            <View style={styles.sourceRow}>
-              <Text style={styles.sourceLabel}>Устройство</Text>
-              <Text style={styles.sourceValue}>
-                {ride.sourceDeviceLabel?.trim() || 'Неизвестное устройство'}
-              </Text>
-            </View>
-            <View style={styles.sourceRow}>
-              <Text style={styles.sourceLabel}>Импортировано</Text>
-              <Text style={styles.sourceValue}>
-                {ride.importedAt != null && Number.isFinite(ride.importedAt)
-                  ? `${formatDate(ride.importedAt)} ${formatTime(ride.importedAt)}`
-                  : '—'}
-              </Text>
-            </View>
-            <View style={styles.sourceRow}>
-              <Text style={styles.sourceLabel}>Тип</Text>
-              <Text style={styles.sourceValue}>{importKindLabel(ride.importKind)}</Text>
-            </View>
-            {ride.importBatchId ? (
+          </View>
+
+          {isImportedRide(ride) && (
+            <View style={styles.sourceBlock}>
+              <Text style={styles.sourceTitle}>Источник</Text>
               <View style={styles.sourceRow}>
-                <Text style={styles.sourceLabel}>Пакет</Text>
-                <Text style={styles.sourceValue} numberOfLines={2}>
-                  {ride.importBatchId}
+                <Text style={styles.sourceLabel}>Приложение</Text>
+                <Text style={styles.sourceValue}>
+                  {ride.sourceAppName?.trim() || 'Неизвестно'}
                 </Text>
               </View>
-            ) : null}
-          </View>
-        )}
+              <View style={styles.sourceRow}>
+                <Text style={styles.sourceLabel}>Устройство</Text>
+                <Text style={styles.sourceValue}>
+                  {ride.sourceDeviceLabel?.trim() || 'Неизвестное устройство'}
+                </Text>
+              </View>
+              <View style={styles.sourceRow}>
+                <Text style={styles.sourceLabel}>Импортировано</Text>
+                <Text style={styles.sourceValue}>
+                  {ride.importedAt != null && Number.isFinite(ride.importedAt)
+                    ? `${formatDate(ride.importedAt)} ${formatTime(ride.importedAt)}`
+                    : '—'}
+                </Text>
+              </View>
+              <View style={styles.sourceRow}>
+                <Text style={styles.sourceLabel}>Тип</Text>
+                <Text style={styles.sourceValue}>{importKindLabel(ride.importKind)}</Text>
+              </View>
+              {ride.importBatchId ? (
+                <View style={styles.sourceRow}>
+                  <Text style={styles.sourceLabel}>Пакет</Text>
+                  <Text style={styles.sourceValue} numberOfLines={2}>
+                    {ride.importBatchId}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
 
-        <Text style={styles.deleteButton} onPress={handleDelete}>
-          Удалить поездку
-        </Text>
-      </View>
+          <Text style={styles.deleteButton} onPress={handleDelete}>
+            Удалить поездку
+          </Text>
+        </View>
+      </RideDetailInfoSheet>
 
       <Modal
         visible={isPointsModalVisible}
@@ -390,18 +418,49 @@ export function RideDetailScreen() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screenRoot: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#e0e0e0',
   },
   mapContainer: {
-    height: 250,
+    flex: 1,
     backgroundColor: '#e0e0e0',
+  },
+  collapsedStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+  collapsedStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  collapsedStatDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    backgroundColor: '#e0e0e0',
+    marginHorizontal: 4,
+  },
+  collapsedStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#4CAF50',
+  },
+  collapsedStatLabel: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
   },
   routeCardLoading: {
     flex: 1,
@@ -439,7 +498,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   details: {
-    padding: 16,
+    paddingBottom: 8,
   },
   dateRow: {
     flexDirection: 'row',
