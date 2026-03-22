@@ -1,5 +1,5 @@
 import React from 'react';
-import { Accelerometer } from 'expo-sensors';
+import { Accelerometer, Gyroscope } from 'expo-sensors';
 
 export type ImuTrackingStatus = 'off' | 'listening' | 'no_data';
 
@@ -19,7 +19,13 @@ export function useImuTracking() {
   const [lastSampleAt, setLastSampleAt] = React.useState<number | null>(null);
   const [sampleCount, setSampleCount] = React.useState(0);
 
-  const subscriptionRef = React.useRef<{ remove: () => void } | null>(null);
+  const [gyroscopeStatus, setGyroscopeStatus] = React.useState<ImuTrackingStatus>('off');
+  const [gyroscopeLastSample, setGyroscopeLastSample] = React.useState<ImuSample | null>(null);
+  const [gyroscopeLastSampleAt, setGyroscopeLastSampleAt] = React.useState<number | null>(null);
+  const [gyroscopeSampleCount, setGyroscopeSampleCount] = React.useState(0);
+
+  const accelerometerSubscriptionRef = React.useRef<{ remove: () => void } | null>(null);
+  const gyroscopeSubscriptionRef = React.useRef<{ remove: () => void } | null>(null);
   const watchdogTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const clearWatchdog = React.useCallback(() => {
@@ -30,52 +36,94 @@ export function useImuTracking() {
   }, []);
 
   const stop = React.useCallback(() => {
-    if (subscriptionRef.current) {
-      subscriptionRef.current.remove();
-      subscriptionRef.current = null;
+    if (accelerometerSubscriptionRef.current) {
+      accelerometerSubscriptionRef.current.remove();
+      accelerometerSubscriptionRef.current = null;
+    }
+    if (gyroscopeSubscriptionRef.current) {
+      gyroscopeSubscriptionRef.current.remove();
+      gyroscopeSubscriptionRef.current = null;
     }
     clearWatchdog();
     setStatus('off');
+    setGyroscopeStatus('off');
   }, [clearWatchdog]);
 
   const start = React.useCallback(async (): Promise<boolean> => {
-    if (subscriptionRef.current) {
+    if (accelerometerSubscriptionRef.current || gyroscopeSubscriptionRef.current) {
       return true;
     }
 
-    const isAvailable = await Accelerometer.isAvailableAsync();
-    if (!isAvailable) {
+    const [accelerometerAvailable, gyroscopeAvailable] = await Promise.all([
+      Accelerometer.isAvailableAsync(),
+      Gyroscope.isAvailableAsync(),
+    ]);
+
+    if (!accelerometerAvailable && !gyroscopeAvailable) {
       setStatus('no_data');
+      setGyroscopeStatus('no_data');
       return false;
     }
 
     setSampleCount(0);
     setLastSample(null);
     setLastSampleAt(null);
-    setStatus('listening');
+    setStatus(accelerometerAvailable ? 'listening' : 'no_data');
 
-    Accelerometer.setUpdateInterval(IMU_UPDATE_INTERVAL_MS);
+    setGyroscopeSampleCount(0);
+    setGyroscopeLastSample(null);
+    setGyroscopeLastSampleAt(null);
+    setGyroscopeStatus(gyroscopeAvailable ? 'listening' : 'no_data');
 
-    subscriptionRef.current = Accelerometer.addListener((data) => {
-      setLastSample({
-        x: data.x,
-        y: data.y,
-        z: data.z,
+    if (accelerometerAvailable) {
+      Accelerometer.setUpdateInterval(IMU_UPDATE_INTERVAL_MS);
+      accelerometerSubscriptionRef.current = Accelerometer.addListener((data) => {
+        setLastSample({
+          x: data.x,
+          y: data.y,
+          z: data.z,
+        });
+        setLastSampleAt(Date.now());
+        setSampleCount((prev) => prev + 1);
+        setStatus('listening');
       });
-      setLastSampleAt(Date.now());
-      setSampleCount((prev) => prev + 1);
-      setStatus('listening');
-    });
+    }
+
+    if (gyroscopeAvailable) {
+      Gyroscope.setUpdateInterval(IMU_UPDATE_INTERVAL_MS);
+      gyroscopeSubscriptionRef.current = Gyroscope.addListener((data) => {
+        setGyroscopeLastSample({
+          x: data.x,
+          y: data.y,
+          z: data.z,
+        });
+        setGyroscopeLastSampleAt(Date.now());
+        setGyroscopeSampleCount((prev) => prev + 1);
+        setGyroscopeStatus('listening');
+      });
+    }
 
     clearWatchdog();
     watchdogTimerRef.current = setInterval(() => {
       const now = Date.now();
-      setLastSampleAt((prev) => {
-        if (prev != null && now - prev > NO_DATA_TIMEOUT_MS) {
-          setStatus('no_data');
-        }
-        return prev;
-      });
+
+      if (accelerometerAvailable) {
+        setLastSampleAt((prev) => {
+          if (prev != null && now - prev > NO_DATA_TIMEOUT_MS) {
+            setStatus('no_data');
+          }
+          return prev;
+        });
+      }
+
+      if (gyroscopeAvailable) {
+        setGyroscopeLastSampleAt((prev) => {
+          if (prev != null && now - prev > NO_DATA_TIMEOUT_MS) {
+            setGyroscopeStatus('no_data');
+          }
+          return prev;
+        });
+      }
     }, WATCHDOG_TICK_MS);
 
     return true;
@@ -92,8 +140,12 @@ export function useImuTracking() {
     lastSample,
     lastSampleAt,
     sampleCount,
+    gyroscopeStatus,
+    gyroscopeLastSample,
+    gyroscopeLastSampleAt,
+    gyroscopeSampleCount,
     start,
     stop,
-    isRunning: status !== 'off',
+    isRunning: status !== 'off' || gyroscopeStatus !== 'off',
   };
 }

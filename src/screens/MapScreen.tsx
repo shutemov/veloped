@@ -57,6 +57,10 @@ export function MapScreen() {
     lastSample: imuLastSample,
     lastSampleAt: imuLastSampleAt,
     sampleCount: imuSampleCount,
+    gyroscopeStatus,
+    gyroscopeLastSample,
+    gyroscopeLastSampleAt,
+    gyroscopeSampleCount,
     start: startImu,
     stop: stopImu,
     isRunning: isImuRunning,
@@ -267,7 +271,7 @@ export function MapScreen() {
 
     const started = await startImu();
     if (!started) {
-      Alert.alert('IMU недоступен', 'Акселерометр не найден или не отправляет данные.');
+      Alert.alert('IMU недоступен', 'Датчики акселерометра и гироскопа недоступны.');
     }
   };
 
@@ -279,6 +283,15 @@ export function MapScreen() {
       : 'no_data';
   const imuLastSampleTimeText = imuLastSampleAt
     ? new Date(imuLastSampleAt).toLocaleTimeString()
+    : '—';
+  const gyroStatusLabel =
+    gyroscopeStatus === 'off'
+      ? 'off'
+      : gyroscopeStatus === 'listening'
+      ? 'listening'
+      : 'no_data';
+  const gyroLastSampleTimeText = gyroscopeLastSampleAt
+    ? new Date(gyroscopeLastSampleAt).toLocaleTimeString()
     : '—';
 
   const polylineCoords = coordinates.map((c) => ({
@@ -374,13 +387,22 @@ export function MapScreen() {
         {__DEV__ && (
           <View style={styles.imuPanel}>
             <Text style={styles.imuTitle}>IMU debug</Text>
-            <Text style={styles.imuText}>status: {imuStatusLabel}</Text>
-            <Text style={styles.imuText}>samples: {imuSampleCount}</Text>
-            <Text style={styles.imuText}>last: {imuLastSampleTimeText}</Text>
+            <Text style={styles.imuText}>acc status: {imuStatusLabel}</Text>
+            <Text style={styles.imuText}>acc samples: {imuSampleCount}</Text>
+            <Text style={styles.imuText}>acc last: {imuLastSampleTimeText}</Text>
             <Text style={styles.imuText}>
-              x/y/z:{' '}
+              acc x/y/z:{' '}
               {imuLastSample
                 ? `${imuLastSample.x.toFixed(3)} / ${imuLastSample.y.toFixed(3)} / ${imuLastSample.z.toFixed(3)}`
+                : '—'}
+            </Text>
+            <Text style={[styles.imuText, styles.imuSensorSpacer]}>gyro status: {gyroStatusLabel}</Text>
+            <Text style={styles.imuText}>gyro samples: {gyroscopeSampleCount}</Text>
+            <Text style={styles.imuText}>gyro last: {gyroLastSampleTimeText}</Text>
+            <Text style={styles.imuText}>
+              gyro x/y/z:{' '}
+              {gyroscopeLastSample
+                ? `${gyroscopeLastSample.x.toFixed(3)} / ${gyroscopeLastSample.y.toFixed(3)} / ${gyroscopeLastSample.z.toFixed(3)}`
                 : '—'}
             </Text>
             <TouchableOpacity
@@ -496,6 +518,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#333',
     marginBottom: 2,
+  },
+  imuSensorSpacer: {
+    marginTop: 6,
   },
   imuButton: {
     marginTop: 8,
