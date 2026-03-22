@@ -8,6 +8,17 @@ import { StatsBar } from '../components/StatsBar';
 import { TrackingButton } from '../components/TrackingButton';
 import { Coordinate, Ride } from '../types';
 
+type MapScreenMarker =
+  | { kind: 'device'; coordinate: Coordinate }
+  | { kind: 'start'; coordinate: Coordinate }
+  | { kind: 'finish'; coordinate: Coordinate };
+
+function markerTitle(kind: MapScreenMarker['kind']): string {
+  if (kind === 'device') return 'Моё местоположение';
+  if (kind === 'start') return 'Старт';
+  return 'Финиш';
+}
+
 export function MapScreen() {
   const insets = useSafeAreaInsets();
   const {
@@ -32,9 +43,10 @@ export function MapScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
-  const [deviceLocation, setDeviceLocation] = useState<Coordinate | null>(null);
+  const [mapMarker, setMapMarker] = useState<MapScreenMarker | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
+  const startMarkerPendingRef = useRef(false);
 
   const animateToLocationSafe = useCallback(
     async (latitude: number, longitude: number) => {
@@ -69,12 +81,44 @@ export function MapScreen() {
     initializeLocation();
   }, []);
 
-  // Во время трекинга маркер ведём за текущей позицией из фонового/foreground обновления.
   useEffect(() => {
-    if (currentLocation && state === 'tracking') {
-      setDeviceLocation(currentLocation);
+    if (state !== 'tracking') {
+      startMarkerPendingRef.current = false;
     }
-  }, [currentLocation, state]);
+  }, [state]);
+
+  // После «Старт»: один маркер в точке старта (первая координата трека), без обновления по GPS.
+  useEffect(() => {
+    if (state !== 'tracking' || !startMarkerPendingRef.current) {
+      return;
+    }
+    if (coordinates.length > 0) {
+      startMarkerPendingRef.current = false;
+      setMapMarker({
+        kind: 'start',
+        coordinate: coordinates[0],
+      });
+    }
+  }, [state, coordinates]);
+
+  // После «Стоп»: маркер только в точке финиша.
+  useEffect(() => {
+    if (state === 'finished' && coordinates.length > 0) {
+      setMapMarker({
+        kind: 'finish',
+        coordinate: coordinates[coordinates.length - 1],
+      });
+    }
+  }, [state, coordinates]);
+
+  // Сохранение/сброс: убираем старт/финиш; маркер «устройство» не трогаем при пустом треке в idle.
+  useEffect(() => {
+    if (state === 'idle' && coordinates.length === 0) {
+      setMapMarker((m) =>
+        m?.kind === 'start' || m?.kind === 'finish' ? null : m
+      );
+    }
+  }, [state, coordinates.length]);
 
   useEffect(() => {
     if (currentLocation && state === 'tracking' && cameraRef.current) {
@@ -105,7 +149,7 @@ export function MapScreen() {
         return;
       }
 
-      setDeviceLocation(location);
+      setMapMarker({ kind: 'device', coordinate: location });
       void animateToLocationSafe(location.latitude, location.longitude);
     } catch (error) {
       console.error('Failed to show device location:', error);
@@ -116,8 +160,11 @@ export function MapScreen() {
   };
 
   const handleStart = async () => {
+    setMapMarker(null);
+    startMarkerPendingRef.current = true;
     const success = await start();
     if (!success) {
+      startMarkerPendingRef.current = false;
       Alert.alert(
         'Ошибка',
         'Не удалось начать запись. Проверьте разрешения на геолокацию.',
@@ -127,8 +174,11 @@ export function MapScreen() {
   };
 
   const handleStartDemo = async () => {
+    setMapMarker(null);
+    startMarkerPendingRef.current = true;
     const success = await startSimulation();
     if (!success) {
+      startMarkerPendingRef.current = false;
       Alert.alert('Демо недоступно', 'Остановите текущий трек или сбросьте запись.');
     }
   };
@@ -197,15 +247,15 @@ export function MapScreen() {
         initialZoom={16}
         onMapReady={() => setIsMapReady(true)}
         markers={
-          deviceLocation
+          mapMarker
             ? [
                 {
-                  id: 'device',
+                  id: 'map-marker',
                   coordinate: {
-                    latitude: deviceLocation.latitude,
-                    longitude: deviceLocation.longitude,
+                    latitude: mapMarker.coordinate.latitude,
+                    longitude: mapMarker.coordinate.longitude,
                   },
-                  title: 'Моё местоположение',
+                  title: markerTitle(mapMarker.kind),
                 },
               ]
             : []
@@ -250,10 +300,15 @@ export function MapScreen() {
         <TouchableOpacity
           style={[
             styles.deviceButton,
-            (permissionStatus === 'denied' || isLocating) && styles.disabled,
+            (permissionStatus === 'denied' ||
+              isLocating ||
+              state !== 'idle') &&
+              styles.disabled,
           ]}
           onPress={handleShowDevice}
-          disabled={permissionStatus === 'denied' || isLocating}
+          disabled={
+            permissionStatus === 'denied' || isLocating || state !== 'idle'
+          }
         >
           <Text style={styles.deviceButtonText}>Показать устройство</Text>
         </TouchableOpacity>
