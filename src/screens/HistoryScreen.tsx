@@ -1,12 +1,13 @@
 import React, { useCallback, useLayoutEffect, useState } from 'react';
-import { View, FlatList, Text, StyleSheet, RefreshControl, Alert } from 'react-native';
+import { Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useRides } from '../hooks/useRides';
-import { RideCard } from '../components/RideCard';
+import { HistoryScreenProvider, useHistoryScreenContext } from '../context/HistoryScreenContext';
 import { ShareGpxHeaderButton } from '../components/ShareGpxHeaderButton';
-import { Ride } from '../types';
-import { shareAllRidesAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
+import { shareRidesAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
+import { HistoryTopTabs } from './history/HistoryTopTabs';
+import type { Ride } from '../types';
 
 type HistoryStackParamList = {
   HistoryList: undefined;
@@ -15,16 +16,19 @@ type HistoryStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<HistoryStackParamList, 'HistoryList'>;
 
-export function HistoryScreen() {
-  const { rides, loading, refresh } = useRides();
+function HistoryScreenShell() {
   const navigation = useNavigation<NavigationProp>();
+  const { recordedRides, activeTab } = useHistoryScreenContext();
   const [exporting, setExporting] = useState(false);
 
   const handleShareGpx = useCallback(async () => {
-    if (rides.length === 0) return;
+    if (recordedRides.length === 0) return;
     setExporting(true);
     try {
-      await shareAllRidesAsGpx(rides);
+      await shareRidesAsGpx(recordedRides, {
+        fileName: `veloped-my-routes-${Date.now()}.gpx`,
+        dialogTitle: 'Поделиться моими маршрутами (GPX)',
+      });
     } catch (error) {
       if (error instanceof ShareGpxError && error.code === 'NO_RIDES') {
         return;
@@ -39,78 +43,46 @@ export function HistoryScreen() {
     } finally {
       setExporting(false);
     }
-  }, [rides]);
+  }, [recordedRides]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <ShareGpxHeaderButton
-          onPress={handleShareGpx}
-          disabled={rides.length === 0}
-          loading={exporting}
-          accessibilityLabel="Экспорт всех маршрутов в GPX и поделиться"
-        />
-      ),
+      headerRight:
+        activeTab === 'my'
+          ? () => (
+              <ShareGpxHeaderButton
+                onPress={handleShareGpx}
+                disabled={recordedRides.length === 0}
+                loading={exporting}
+                accessibilityLabel="Экспорт всех маршрутов в GPX и поделиться"
+              />
+            )
+          : undefined,
     });
-  }, [navigation, handleShareGpx, exporting, rides.length]);
+  }, [navigation, handleShareGpx, exporting, recordedRides.length, activeTab]);
 
-  const handleRidePress = (ride: Ride) => {
-    navigation.navigate('RideDetail', { rideId: ride.id });
-  };
+  return <HistoryTopTabs />;
+}
 
-  const renderEmptyList = () => (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyTitle}>Пока нет поездок</Text>
-      <Text style={styles.emptyText}>
-        Нажмите «Старт» на вкладке карты, чтобы записать первую поездку.
-      </Text>
-    </View>
+export function HistoryScreen() {
+  const { rides, loading, refresh } = useRides();
+  const navigation = useNavigation<NavigationProp>();
+
+  const navigateToRideDetail = useCallback(
+    (ride: Ride) => {
+      navigation.navigate('RideDetail', { rideId: ride.id });
+    },
+    [navigation]
   );
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={rides}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <RideCard ride={item} onPress={() => handleRidePress(item)} />
-        )}
-        ListEmptyComponent={renderEmptyList}
-        contentContainerStyle={rides.length === 0 ? styles.emptyList : styles.list}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={refresh} />
-        }
-      />
-    </View>
+    <HistoryScreenProvider
+      rides={rides}
+      loading={loading}
+      refresh={refresh}
+      navigateToRideDetail={navigateToRideDetail}
+    >
+      <HistoryScreenShell />
+    </HistoryScreenProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  list: {
-    paddingVertical: 8,
-  },
-  emptyList: {
-    flex: 1,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-  },
-});

@@ -7,6 +7,7 @@ import { useRides } from '../hooks/useRides';
 import { ShareGpxHeaderButton } from '../components/ShareGpxHeaderButton';
 import { formatDate, formatTime, formatDistance, formatDuration } from '../utils/formatters';
 import { shareSingleRideAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
+import { importKindLabel, isImportedRide } from '../utils/rideSource';
 
 type RideDetailParams = {
   RideDetail: { rideId: string };
@@ -280,6 +281,44 @@ export function RideDetailScreen() {
           </View>
         </View>
 
+        {isImportedRide(ride) && (
+          <View style={styles.sourceBlock}>
+            <Text style={styles.sourceTitle}>Источник</Text>
+            <View style={styles.sourceRow}>
+              <Text style={styles.sourceLabel}>Приложение</Text>
+              <Text style={styles.sourceValue}>
+                {ride.sourceAppName?.trim() || 'Неизвестно'}
+              </Text>
+            </View>
+            <View style={styles.sourceRow}>
+              <Text style={styles.sourceLabel}>Устройство</Text>
+              <Text style={styles.sourceValue}>
+                {ride.sourceDeviceLabel?.trim() || 'Неизвестное устройство'}
+              </Text>
+            </View>
+            <View style={styles.sourceRow}>
+              <Text style={styles.sourceLabel}>Импортировано</Text>
+              <Text style={styles.sourceValue}>
+                {ride.importedAt != null && Number.isFinite(ride.importedAt)
+                  ? `${formatDate(ride.importedAt)} ${formatTime(ride.importedAt)}`
+                  : '—'}
+              </Text>
+            </View>
+            <View style={styles.sourceRow}>
+              <Text style={styles.sourceLabel}>Тип</Text>
+              <Text style={styles.sourceValue}>{importKindLabel(ride.importKind)}</Text>
+            </View>
+            {ride.importBatchId ? (
+              <View style={styles.sourceRow}>
+                <Text style={styles.sourceLabel}>Пакет</Text>
+                <Text style={styles.sourceValue} numberOfLines={2}>
+                  {ride.importBatchId}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        )}
+
         <Text style={styles.deleteButton} onPress={handleDelete}>
           Удалить поездку
         </Text>
@@ -391,6 +430,39 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 4,
+  },
+  sourceBlock: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+  sourceTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 12,
+  },
+  sourceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 10,
+  },
+  sourceLabel: {
+    fontSize: 13,
+    color: '#888',
+    flexShrink: 0,
+  },
+  sourceValue: {
+    fontSize: 13,
+    color: '#1a1a1a',
+    fontWeight: '500',
+    flex: 1,
+    textAlign: 'right',
   },
   deleteButton: {
     color: '#f44336',
