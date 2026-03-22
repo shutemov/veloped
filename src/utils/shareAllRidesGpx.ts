@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import { Ride } from '../types';
 import { buildGpxFromRides } from './gpx';
 import { buildGpxExportFileName } from './gpxExportFileName';
@@ -19,6 +20,15 @@ export type ShareRidesGpxOptions = {
   fileName: string;
   dialogTitle: string;
 };
+
+/**
+ * На Android Telegram и часть других приложений плохо обрабатывают
+ * `application/gpx+xml` (кнопка «Отправить» может не сработать). Отдаём файл как
+ * обычный бинарный вложение; расширение .gpx в имени сохраняется.
+ */
+function gpxShareMimeType(): string {
+  return Platform.OS === 'android' ? 'application/octet-stream' : 'application/gpx+xml';
+}
 
 /**
  * GPX из списка поездок (одна или несколько), запись в кэш и системное меню «Поделиться».
@@ -48,7 +58,7 @@ export async function shareRidesAsGpx(
   }
 
   await Sharing.shareAsync(uri, {
-    mimeType: 'application/gpx+xml',
+    mimeType: gpxShareMimeType(),
     dialogTitle: options.dialogTitle,
   });
 }
