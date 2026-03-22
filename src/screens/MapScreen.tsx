@@ -101,19 +101,20 @@ export function MapScreen() {
     }
   }, [state]);
 
-  // После «Старт»: один маркер в точке старта (первая координата трека), без обновления по GPS.
+  // Во время записи: маркер старта на первой точке (в т.ч. после восстановления трека из AsyncStorage).
+  const trackStart = coordinates[0];
   React.useEffect(() => {
-    if (state !== 'tracking' || !startMarkerPendingRef.current) {
+    if (state !== 'tracking' || !trackStart) {
       return;
     }
-    if (coordinates.length > 0) {
+    if (startMarkerPendingRef.current) {
       startMarkerPendingRef.current = false;
-      setMapMarker({
-        kind: 'start',
-        coordinate: coordinates[0],
-      });
     }
-  }, [state, coordinates]);
+    setMapMarker((m) => {
+      if (m?.kind === 'finish') return m;
+      return { kind: 'start', coordinate: trackStart };
+    });
+  }, [state, trackStart?.latitude, trackStart?.longitude]);
 
   // После «Стоп»: маркер только в точке финиша.
   React.useEffect(() => {

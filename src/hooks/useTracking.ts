@@ -1,4 +1,5 @@
 import React from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -25,9 +26,74 @@ export function useTracking() {
   const timerRef = React.useRef<NodeJS.Timeout | null>(null);
   const locationSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
   const simulationTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
+
+  const readActiveRideFromStorage = React.useCallback(async () => {
+    const raw = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { coordinates?: Coordinate[]; startTime?: number };
+      if (
+        typeof parsed.startTime !== 'number' ||
+        !Array.isArray(parsed.coordinates) ||
+        parsed.coordinates.length === 0
+      ) {
+        return null;
+      }
+      return parsed as { coordinates: Coordinate[]; startTime: number };
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const attachForegroundWatch = React.useCallback(() => {
+    if (locationSubscriptionRef.current) {
+      return;
+    }
+    void (async () => {
+      try {
+        locationSubscriptionRef.current = await Location.watchPositionAsync(
+          GPS_OPTIONS,
+          (location) => {
+            const newCoord: Coordinate = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              timestamp: location.timestamp,
+            };
+            setCoordinates((prev) => [...prev, newCoord]);
+          }
+        );
+      } catch (e) {
+        console.error('watchPositionAsync failed after restore:', e);
+      }
+    })();
+  }, []);
+
+  /** После убийства процесса / холодного старта: трек в AsyncStorage, UI — пустой, пока не подтянем. */
+  const hydrateActiveRideIfNeeded = React.useCallback(async () => {
+    try {
+      const updatesStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (!updatesStarted) {
+        return;
+      }
+      const active = await readActiveRideFromStorage();
+      if (!active) {
+        return;
+      }
+      startTimeRef.current = active.startTime;
+      setCoordinates(active.coordinates);
+      setDurationSeconds(Math.max(0, Math.floor((Date.now() - active.startTime) / 1000)));
+      startDurationTimer();
+      attachForegroundWatch();
+      setState('tracking');
+    } catch (e) {
+      console.error('hydrateActiveRideIfNeeded failed:', e);
+    }
+  }, [attachForegroundWatch, readActiveRideFromStorage]);
 
   React.useEffect(() => {
     checkPermissions();
+    void hydrateActiveRideIfNeeded();
     return () => {
       cleanup();
     };
@@ -39,6 +105,33 @@ export function useTracking() {
       setCurrentLocation(coordinates[coordinates.length - 1]);
     }
   }, [coordinates]);
+
+  /** Пока приложение в фоне, точки копятся в AsyncStorage; в state остаётся старый срез — подтягиваем при возврате. */
+  React.useEffect(() => {
+    const syncCoordsFromStorage = async () => {
+      if (state !== 'tracking' || isSimulating) {
+        return;
+      }
+      const active = await readActiveRideFromStorage();
+      if (!active) {
+        return;
+      }
+      setCoordinates((prev) =>
+        active.coordinates.length > prev.length ? active.coordinates : prev
+      );
+    };
+
+    const onChange = (next: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev.match(/inactive|background/) && next === 'active') {
+        void syncCoordsFromStorage();
+      }
+    };
+
+    const sub = AppState.addEventListener('change', onChange);
+    return () => sub.remove();
+  }, [state, isSimulating, readActiveRideFromStorage]);
 
   const checkPermissions = async () => {
     const { status } = await Location.getForegroundPermissionsAsync();
