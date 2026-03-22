@@ -1,20 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, Modal, Pressable } from 'react-native';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
 import { useRides } from '../hooks/useRides';
+import { ShareGpxHeaderButton } from '../components/ShareGpxHeaderButton';
 import { formatDate, formatTime, formatDistance, formatDuration } from '../utils/formatters';
+import { shareSingleRideAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
 
 type RideDetailParams = {
   RideDetail: { rideId: string };
 };
 
+type RideDetailNavigationProp = NativeStackNavigationProp<RideDetailParams, 'RideDetail'>;
+
 export function RideDetailScreen() {
   const route = useRoute<RouteProp<RideDetailParams, 'RideDetail'>>();
-  const navigation = useNavigation();
+  const navigation = useNavigation<RideDetailNavigationProp>();
   const { getRide, deleteRide } = useRides();
   const [isPointsModalVisible, setIsPointsModalVisible] = React.useState(false);
   const [isMapReady, setIsMapReady] = React.useState(false);
+  const [exportingGpx, setExportingGpx] = useState(false);
   const mapRef = useRef<OSMViewRef>(null);
 
   const ride = getRide(route.params.rideId);
@@ -141,6 +147,40 @@ export function RideDetailScreen() {
   useEffect(() => {
     setIsMapReady(false);
   }, [route.params.rideId]);
+
+  const handleShareGpx = useCallback(async () => {
+    if (!ride) return;
+    setExportingGpx(true);
+    try {
+      await shareSingleRideAsGpx(ride);
+    } catch (error) {
+      const message =
+        error instanceof ShareGpxError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      Alert.alert('Не удалось поделиться', message);
+    } finally {
+      setExportingGpx(false);
+    }
+  }, [ride]);
+
+  useLayoutEffect(() => {
+    if (!ride) {
+      navigation.setOptions({ headerRight: undefined });
+      return;
+    }
+    navigation.setOptions({
+      headerRight: () => (
+        <ShareGpxHeaderButton
+          onPress={handleShareGpx}
+          loading={exportingGpx}
+          accessibilityLabel="Экспорт этой поездки в GPX и поделиться"
+        />
+      ),
+    });
+  }, [navigation, ride, handleShareGpx, exportingGpx]);
 
   const handleDelete = () => {
     if (!ride) return;

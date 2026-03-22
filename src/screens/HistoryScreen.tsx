@@ -1,10 +1,12 @@
-import React from 'react';
-import { View, FlatList, Text, StyleSheet, RefreshControl } from 'react-native';
+import React, { useCallback, useLayoutEffect, useState } from 'react';
+import { View, FlatList, Text, StyleSheet, RefreshControl, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useRides } from '../hooks/useRides';
 import { RideCard } from '../components/RideCard';
+import { ShareGpxHeaderButton } from '../components/ShareGpxHeaderButton';
 import { Ride } from '../types';
+import { shareAllRidesAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
 
 type HistoryStackParamList = {
   HistoryList: undefined;
@@ -16,6 +18,41 @@ type NavigationProp = NativeStackNavigationProp<HistoryStackParamList, 'HistoryL
 export function HistoryScreen() {
   const { rides, loading, refresh } = useRides();
   const navigation = useNavigation<NavigationProp>();
+  const [exporting, setExporting] = useState(false);
+
+  const handleShareGpx = useCallback(async () => {
+    if (rides.length === 0) return;
+    setExporting(true);
+    try {
+      await shareAllRidesAsGpx(rides);
+    } catch (error) {
+      if (error instanceof ShareGpxError && error.code === 'NO_RIDES') {
+        return;
+      }
+      const message =
+        error instanceof ShareGpxError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : String(error);
+      Alert.alert('Не удалось поделиться', message);
+    } finally {
+      setExporting(false);
+    }
+  }, [rides]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <ShareGpxHeaderButton
+          onPress={handleShareGpx}
+          disabled={rides.length === 0}
+          loading={exporting}
+          accessibilityLabel="Экспорт всех маршрутов в GPX и поделиться"
+        />
+      ),
+    });
+  }, [navigation, handleShareGpx, exporting, rides.length]);
 
   const handleRidePress = (ride: Ride) => {
     navigation.navigate('RideDetail', { rideId: ride.id });
