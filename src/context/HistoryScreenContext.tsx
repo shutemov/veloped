@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { Ride } from '../types';
 import { isImportedRide, isRecordedRide } from '../utils/rideSource';
 
@@ -13,6 +13,9 @@ type HistoryScreenContextValue = {
   activeTab: HistoryActiveTab;
   setActiveTab: (tab: HistoryActiveTab) => void;
   navigateToRideDetail: (ride: Ride) => void;
+  importRides: (rides: Ride[]) => Promise<void>;
+  registerSwitchToImportedTab: (fn: (() => void) | null) => void;
+  switchToImportedTab: () => void;
 };
 
 const HistoryScreenContext = createContext<HistoryScreenContextValue | null>(null);
@@ -23,6 +26,7 @@ type ProviderProps = {
   loading: boolean;
   refresh: () => void;
   navigateToRideDetail: (ride: Ride) => void;
+  importRides: (rides: Ride[]) => Promise<void>;
 };
 
 export function HistoryScreenProvider({
@@ -31,11 +35,21 @@ export function HistoryScreenProvider({
   loading,
   refresh,
   navigateToRideDetail,
+  importRides,
 }: ProviderProps) {
   const [activeTab, setActiveTabState] = useState<HistoryActiveTab>('my');
+  const switchToImportedRef = useRef<(() => void) | null>(null);
 
   const setActiveTab = useCallback((tab: HistoryActiveTab) => {
     setActiveTabState(tab);
+  }, []);
+
+  const registerSwitchToImportedTab = useCallback((fn: (() => void) | null) => {
+    switchToImportedRef.current = fn;
+  }, []);
+
+  const switchToImportedTab = useCallback(() => {
+    switchToImportedRef.current?.();
   }, []);
 
   const recordedRides = useMemo(
@@ -57,6 +71,9 @@ export function HistoryScreenProvider({
       activeTab,
       setActiveTab,
       navigateToRideDetail,
+      importRides,
+      registerSwitchToImportedTab,
+      switchToImportedTab,
     }),
     [
       rides,
@@ -67,6 +84,9 @@ export function HistoryScreenProvider({
       activeTab,
       setActiveTab,
       navigateToRideDetail,
+      importRides,
+      registerSwitchToImportedTab,
+      switchToImportedTab,
     ]
   );
 

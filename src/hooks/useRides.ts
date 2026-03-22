@@ -57,6 +57,18 @@ export function useRides() {
     }
   }, [rides]);
 
+  const importRides = useCallback(async (newRides: Ride[]): Promise<void> => {
+    if (newRides.length === 0) return;
+    try {
+      const merged = [...newRides, ...rides];
+      await AsyncStorage.setItem(RIDES_STORAGE_KEY, JSON.stringify(merged));
+      setRides(merged.sort((a, b) => b.startTime - a.startTime));
+    } catch (error) {
+      console.error('Failed to import rides:', error);
+      throw error;
+    }
+  }, [rides]);
+
   const getRide = useCallback(
     (id: string): Ride | undefined => {
       return rides.find((ride) => ride.id === id);
@@ -68,6 +80,7 @@ export function useRides() {
     rides,
     loading,
     saveRide,
+    importRides,
     deleteRide,
     getRide,
     refresh: loadRides,

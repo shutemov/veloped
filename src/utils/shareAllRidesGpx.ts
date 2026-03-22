@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Ride } from '../types';
 import { buildGpxFromRides } from './gpx';
+import { buildGpxExportFileName } from './gpxExportFileName';
 
 export class ShareGpxError extends Error {
   constructor(
@@ -55,15 +56,15 @@ export async function shareRidesAsGpx(
 /** Все сохранённые поездки в одном GPX. */
 export async function shareAllRidesAsGpx(rides: Ride[]): Promise<void> {
   return shareRidesAsGpx(rides, {
-    fileName: `veloped-all-routes-${Date.now()}.gpx`,
-    dialogTitle: 'Поделиться маршрутами (GPX)',
+    fileName: buildGpxExportFileName('all'),
+    dialogTitle: 'Поделиться моими маршрутами (GPX)',
   });
 }
 
 /** Одна поездка в GPX. */
 export async function shareSingleRideAsGpx(ride: Ride): Promise<void> {
   return shareRidesAsGpx([ride], {
-    fileName: `veloped-ride-${ride.id}-${Date.now()}.gpx`,
+    fileName: buildGpxExportFileName('single'),
     dialogTitle: 'Поделиться поездкой (GPX)',
   });
 }

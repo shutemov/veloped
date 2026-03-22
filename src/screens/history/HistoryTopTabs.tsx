@@ -68,7 +68,7 @@ function ImportedRidesPage({
     <View style={styles.emptyContainer}>
       <Text style={styles.emptyTitle}>Импортированных маршрутов пока нет</Text>
       <Text style={styles.emptyText}>
-        Когда появится импорт с другого устройства или приложения, они отобразятся здесь с
+        Нажмите кнопку вложения в шапке экрана и выберите файл GPX — маршруты появятся здесь с
         указанием источника.
       </Text>
     </View>
@@ -100,7 +100,8 @@ function ImportedRidesPage({
 
 export function HistoryTopTabs() {
   const { width } = useWindowDimensions();
-  const { setActiveTab, navigateToRideDetail } = useHistoryScreenContext();
+  const { setActiveTab, navigateToRideDetail, registerSwitchToImportedTab } =
+    useHistoryScreenContext();
   const scrollRef = useRef<ScrollView>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const pageIndexRef = useRef(pageIndex);
@@ -114,6 +115,11 @@ export function HistoryTopTabs() {
     },
     [width, setActiveTab]
   );
+
+  useEffect(() => {
+    registerSwitchToImportedTab(() => goToPage(1));
+    return () => registerSwitchToImportedTab(null);
+  }, [goToPage, registerSwitchToImportedTab]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
