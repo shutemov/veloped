@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Alert, Text, TouchableOpacity } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  Alert,
+  Text,
+  TouchableOpacity,
+  Pressable,
+  ActivityIndicator,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTracking } from '../hooks/useTracking';
@@ -18,6 +27,9 @@ function markerTitle(kind: MapScreenMarker['kind']): string {
   if (kind === 'start') return 'Старт';
   return 'Финиш';
 }
+
+/** Отступ FAB «моя позиция» от правого и нижнего края карты (px). Снизу плюс safe area. */
+const LOCATE_FAB_INSET = 24;
 
 export function MapScreen() {
   const insets = useSafeAreaInsets();
@@ -139,7 +151,8 @@ export function MapScreen() {
     }
   };
 
-  const handleShowDevice = async () => {
+  /** Центр карты на реальном GPS; маркер «устройство» только в idle (не затираем старт/финиш). */
+  const handleLocateMe = async () => {
     if (isLocating) return;
     try {
       setIsLocating(true);
@@ -149,7 +162,9 @@ export function MapScreen() {
         return;
       }
 
-      setMapMarker({ kind: 'device', coordinate: location });
+      if (state === 'idle') {
+        setMapMarker({ kind: 'device', coordinate: location });
+      }
       void animateToLocationSafe(location.latitude, location.longitude);
     } catch (error) {
       console.error('Failed to show device location:', error);
@@ -282,6 +297,38 @@ export function MapScreen() {
         />
       </View>
 
+      <View
+        style={[
+          styles.locateFabWrap,
+          {
+            right: LOCATE_FAB_INSET,
+            bottom: LOCATE_FAB_INSET,
+          },
+        ]}
+        pointerEvents="box-none"
+      >
+        <Pressable
+          onPress={handleLocateMe}
+          disabled={permissionStatus === 'denied' || isLocating}
+          style={({ pressed }) => [
+            styles.locateFab,
+            (permissionStatus === 'denied' || isLocating) && styles.locateFabDisabled,
+            pressed &&
+              permissionStatus !== 'denied' &&
+              !isLocating &&
+              styles.locateFabPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Показать моё местоположение на карте"
+        >
+          {isLocating ? (
+            <ActivityIndicator size="small" color="#1976D2" />
+          ) : (
+            <Ionicons name="locate" size={26} color="#1976D2" />
+          )}
+        </Pressable>
+      </View>
+
       <View style={[styles.buttonContainer, { bottom: 24 + insets.bottom }]}>
         {__DEV__ && (
           <TouchableOpacity
@@ -297,21 +344,6 @@ export function MapScreen() {
             </Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity
-          style={[
-            styles.deviceButton,
-            (permissionStatus === 'denied' ||
-              isLocating ||
-              state !== 'idle') &&
-              styles.disabled,
-          ]}
-          onPress={handleShowDevice}
-          disabled={
-            permissionStatus === 'denied' || isLocating || state !== 'idle'
-          }
-        >
-          <Text style={styles.deviceButtonText}>Показать устройство</Text>
-        </TouchableOpacity>
         <TrackingButton
           state={state}
           onStart={handleStart}
@@ -345,15 +377,28 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
   },
-  deviceButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 32,
-    backgroundColor: '#2196F3',
-    marginBottom: 16,
-    minWidth: 200,
-    alignItems: 'center',
+  locateFabWrap: {
+    position: 'absolute',
+    zIndex: 2,
+  },
+  locateFab: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#fff',
     justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 3,
+  },
+  locateFabPressed: {
+    opacity: 0.88,
+  },
+  locateFabDisabled: {
+    opacity: 0.45,
   },
   demoButton: {
     paddingVertical: 12,
@@ -368,11 +413,6 @@ const styles = StyleSheet.create({
   demoButtonText: {
     color: '#fff',
     fontSize: 14,
-    fontWeight: '600',
-  },
-  deviceButtonText: {
-    color: '#fff',
-    fontSize: 16,
     fontWeight: '600',
   },
   disabled: {

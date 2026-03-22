@@ -62,17 +62,29 @@ export function useTracking() {
   };
 
   const getCurrentPosition = async (): Promise<Coordinate | null> => {
+    const toCoord = (location: Location.LocationObject): Coordinate => ({
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      timestamp: location.timestamp,
+    });
+
     try {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      return {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        timestamp: location.timestamp,
-      };
+      return toCoord(location);
     } catch (error) {
-      console.error('Failed to get current position:', error);
+      console.warn('getCurrentPositionAsync failed, trying last known:', error);
+      try {
+        const last = await Location.getLastKnownPositionAsync({
+          maxAge: 120_000,
+        });
+        if (last) {
+          return toCoord(last);
+        }
+      } catch (e) {
+        console.error('Failed to get last known position:', e);
+      }
       return null;
     }
   };
