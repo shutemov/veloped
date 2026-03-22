@@ -43,12 +43,15 @@ export function MapScreen() {
     currentLocation,
     permissionStatus,
     isSimulating,
+    isImuTracking,
     start,
     startSimulation,
+    startImuTracking,
     stop,
     reset,
     getStartTime,
     getCurrentPosition,
+    getLastFinishedTrackingMode,
   } = useTracking();
 
   const { saveRide } = useRides();
@@ -189,7 +192,8 @@ export function MapScreen() {
         durationSeconds: Math.max(0, Math.floor((Date.now() - startTime) / 1000)),
         distanceKm: calculateTotalDistance(coordinates),
         coordinates,
-        source: 'recorded',
+        source:
+          getLastFinishedTrackingMode() === 'imu' ? 'imu_dev' : 'recorded',
       };
 
       try {
@@ -204,7 +208,7 @@ export function MapScreen() {
     };
 
     void run();
-  }, [state, coordinates, getStartTime, saveRide, reset]);
+  }, [state, coordinates, getStartTime, getLastFinishedTrackingMode, saveRide, reset]);
 
   const initializeLocation = async () => {
     const location = await getCurrentPosition();
@@ -260,6 +264,23 @@ export function MapScreen() {
     if (!success) {
       startMarkerPendingRef.current = false;
       Alert.alert('Демо недоступно', 'Остановите текущий трек или сбросьте запись.');
+    }
+  };
+
+  const handleStartImuOnly = async () => {
+    if (!__DEV__) {
+      return;
+    }
+    setMapMarker(null);
+    startMarkerPendingRef.current = true;
+    const success = await startImuTracking();
+    if (!success) {
+      startMarkerPendingRef.current = false;
+      Alert.alert(
+        'IMU-трек недоступен',
+        'Нужны разрешение на геолокацию (одна точка старта) и датчики акселерометра и гироскопа. Режим только для разработки.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -440,6 +461,20 @@ export function MapScreen() {
         {__DEV__ && (
           <TouchableOpacity
             style={[
+              styles.imuTrackButton,
+              (state !== 'idle' || permissionStatus === 'denied') && styles.disabled,
+            ]}
+            onPress={handleStartImuOnly}
+            disabled={state !== 'idle' || permissionStatus === 'denied'}
+          >
+            <Text style={styles.demoButtonText}>
+              {isImuTracking ? 'IMU-трек…' : 'Запись только по IMU'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {__DEV__ && (
+          <TouchableOpacity
+            style={[
               styles.demoButton,
               (state !== 'idle' || permissionStatus === 'denied') && styles.disabled,
             ]}
@@ -504,6 +539,16 @@ const styles = StyleSheet.create({
   },
   locateFabDisabled: {
     opacity: 0.45,
+  },
+  imuTrackButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    backgroundColor: '#00838F',
+    marginBottom: 12,
+    minWidth: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   demoButton: {
     paddingVertical: 12,

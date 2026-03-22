@@ -4,7 +4,7 @@ export interface Coordinate {
   timestamp: number;
 }
 
-export type RideSource = 'recorded' | 'imported';
+export type RideSource = 'recorded' | 'imported' | 'imu_dev';
 
 /** Как пришёл импорт: одна поездка или пакетный экспорт «все маршруты». */
 export type ImportKind = 'single_track' | 'bundle_all';
