@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   FlatList,
@@ -16,6 +16,8 @@ import { RideCard } from '../../components/RideCard';
 import { ImportedRideCard } from '../../components/ImportedRideCard';
 import type { Ride } from '../../types';
 
+type MyRidesSortMode = 'date' | 'distance';
+
 function MyRidesPage({
   width,
   navigateToRideDetail,
@@ -24,6 +26,17 @@ function MyRidesPage({
   navigateToRideDetail: (ride: Ride) => void;
 }) {
   const { recordedRides, loading, refresh } = useHistoryScreenContext();
+  const [sortMode, setSortMode] = useState<MyRidesSortMode>('date');
+
+  const displayedRides = useMemo(() => {
+    if (sortMode === 'date') {
+      return recordedRides;
+    }
+    return [...recordedRides].sort(
+      (a, b) =>
+        b.distanceKm - a.distanceKm || b.startTime - a.startTime || a.id.localeCompare(b.id)
+    );
+  }, [recordedRides, sortMode]);
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -36,15 +49,55 @@ function MyRidesPage({
 
   return (
     <View style={[styles.tabPage, { width }]}>
+      {recordedRides.length > 0 && (
+        <View style={styles.sortRow}>
+          <Pressable
+            onPress={() => setSortMode('date')}
+            style={[
+              styles.sortChip,
+              sortMode === 'date' && styles.sortChipActive,
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: sortMode === 'date' }}
+          >
+            <Text
+              style={[
+                styles.sortChipText,
+                sortMode === 'date' && styles.sortChipTextActive,
+              ]}
+            >
+              Сначала новые
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setSortMode('distance')}
+            style={[
+              styles.sortChip,
+              sortMode === 'distance' && styles.sortChipActive,
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: sortMode === 'distance' }}
+          >
+            <Text
+              style={[
+                styles.sortChipText,
+                sortMode === 'distance' && styles.sortChipTextActive,
+              ]}
+            >
+              По длине
+            </Text>
+          </Pressable>
+        </View>
+      )}
       <FlatList
-        data={recordedRides}
+        data={displayedRides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <RideCard ride={item} onPress={() => navigateToRideDetail(item)} />
         )}
         ListEmptyComponent={renderEmpty}
         contentContainerStyle={
-          recordedRides.length === 0 ? styles.emptyList : styles.list
+          displayedRides.length === 0 ? styles.emptyList : styles.list
         }
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={refresh} />
@@ -232,6 +285,35 @@ const styles = StyleSheet.create({
   tabPage: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  sortRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 4,
+    backgroundColor: '#f5f5f5',
+  },
+  sortChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  sortChipActive: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#4CAF50',
+  },
+  sortChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+  },
+  sortChipTextActive: {
+    color: '#2E7D32',
   },
   list: {
     paddingVertical: 8,

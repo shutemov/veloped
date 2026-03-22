@@ -52,8 +52,12 @@ export function HistoryScreenProvider({
     switchToImportedRef.current?.();
   }, []);
 
+  /** Записанные поездки: по умолчанию от новых к старым (для списка и экспорта GPX). */
   const recordedRides = useMemo(
-    () => rides.filter(isRecordedRide).sort((a, b) => b.startTime - a.startTime),
+    () =>
+      rides
+        .filter(isRecordedRide)
+        .sort((a, b) => b.startTime - a.startTime || a.id.localeCompare(b.id)),
     [rides]
   );
   const importedRides = useMemo(
