@@ -61,6 +61,10 @@ export function MapScreen() {
     gyroscopeLastSample,
     gyroscopeLastSampleAt,
     gyroscopeSampleCount,
+    magnetometerStatus,
+    magnetometerLastSample,
+    magnetometerLastSampleAt,
+    magnetometerSampleCount,
     start: startImu,
     stop: stopImu,
     isRunning: isImuRunning,
@@ -271,7 +275,7 @@ export function MapScreen() {
 
     const started = await startImu();
     if (!started) {
-      Alert.alert('IMU недоступен', 'Датчики акселерометра и гироскопа недоступны.');
+      Alert.alert('IMU недоступен', 'Акселерометр, гироскоп и магнитометр недоступны.');
     }
   };
 
@@ -292,6 +296,15 @@ export function MapScreen() {
       : 'no_data';
   const gyroLastSampleTimeText = gyroscopeLastSampleAt
     ? new Date(gyroscopeLastSampleAt).toLocaleTimeString()
+    : '—';
+  const magnetometerStatusLabel =
+    magnetometerStatus === 'off'
+      ? 'off'
+      : magnetometerStatus === 'listening'
+      ? 'listening'
+      : 'no_data';
+  const magnetometerLastSampleTimeText = magnetometerLastSampleAt
+    ? new Date(magnetometerLastSampleAt).toLocaleTimeString()
     : '—';
 
   const polylineCoords = coordinates.map((c) => ({
@@ -403,6 +416,15 @@ export function MapScreen() {
               gyro x/y/z:{' '}
               {gyroscopeLastSample
                 ? `${gyroscopeLastSample.x.toFixed(3)} / ${gyroscopeLastSample.y.toFixed(3)} / ${gyroscopeLastSample.z.toFixed(3)}`
+                : '—'}
+            </Text>
+            <Text style={[styles.imuText, styles.imuSensorSpacer]}>mag status: {magnetometerStatusLabel}</Text>
+            <Text style={styles.imuText}>mag samples: {magnetometerSampleCount}</Text>
+            <Text style={styles.imuText}>mag last: {magnetometerLastSampleTimeText}</Text>
+            <Text style={styles.imuText}>
+              mag x/y/z:{' '}
+              {magnetometerLastSample
+                ? `${magnetometerLastSample.x.toFixed(3)} / ${magnetometerLastSample.y.toFixed(3)} / ${magnetometerLastSample.z.toFixed(3)}`
                 : '—'}
             </Text>
             <TouchableOpacity

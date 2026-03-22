@@ -1,5 +1,5 @@
 import React from 'react';
-import { Accelerometer, Gyroscope } from 'expo-sensors';
+import { Accelerometer, Gyroscope, Magnetometer } from 'expo-sensors';
 
 export type ImuTrackingStatus = 'off' | 'listening' | 'no_data';
 
@@ -23,9 +23,14 @@ export function useImuTracking() {
   const [gyroscopeLastSample, setGyroscopeLastSample] = React.useState<ImuSample | null>(null);
   const [gyroscopeLastSampleAt, setGyroscopeLastSampleAt] = React.useState<number | null>(null);
   const [gyroscopeSampleCount, setGyroscopeSampleCount] = React.useState(0);
+  const [magnetometerStatus, setMagnetometerStatus] = React.useState<ImuTrackingStatus>('off');
+  const [magnetometerLastSample, setMagnetometerLastSample] = React.useState<ImuSample | null>(null);
+  const [magnetometerLastSampleAt, setMagnetometerLastSampleAt] = React.useState<number | null>(null);
+  const [magnetometerSampleCount, setMagnetometerSampleCount] = React.useState(0);
 
   const accelerometerSubscriptionRef = React.useRef<{ remove: () => void } | null>(null);
   const gyroscopeSubscriptionRef = React.useRef<{ remove: () => void } | null>(null);
+  const magnetometerSubscriptionRef = React.useRef<{ remove: () => void } | null>(null);
   const watchdogTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const clearWatchdog = React.useCallback(() => {
@@ -44,24 +49,35 @@ export function useImuTracking() {
       gyroscopeSubscriptionRef.current.remove();
       gyroscopeSubscriptionRef.current = null;
     }
+    if (magnetometerSubscriptionRef.current) {
+      magnetometerSubscriptionRef.current.remove();
+      magnetometerSubscriptionRef.current = null;
+    }
     clearWatchdog();
     setStatus('off');
     setGyroscopeStatus('off');
+    setMagnetometerStatus('off');
   }, [clearWatchdog]);
 
   const start = React.useCallback(async (): Promise<boolean> => {
-    if (accelerometerSubscriptionRef.current || gyroscopeSubscriptionRef.current) {
+    if (
+      accelerometerSubscriptionRef.current ||
+      gyroscopeSubscriptionRef.current ||
+      magnetometerSubscriptionRef.current
+    ) {
       return true;
     }
 
-    const [accelerometerAvailable, gyroscopeAvailable] = await Promise.all([
+    const [accelerometerAvailable, gyroscopeAvailable, magnetometerAvailable] = await Promise.all([
       Accelerometer.isAvailableAsync(),
       Gyroscope.isAvailableAsync(),
+      Magnetometer.isAvailableAsync(),
     ]);
 
-    if (!accelerometerAvailable && !gyroscopeAvailable) {
+    if (!accelerometerAvailable && !gyroscopeAvailable && !magnetometerAvailable) {
       setStatus('no_data');
       setGyroscopeStatus('no_data');
+      setMagnetometerStatus('no_data');
       return false;
     }
 
@@ -74,6 +90,10 @@ export function useImuTracking() {
     setGyroscopeLastSample(null);
     setGyroscopeLastSampleAt(null);
     setGyroscopeStatus(gyroscopeAvailable ? 'listening' : 'no_data');
+    setMagnetometerSampleCount(0);
+    setMagnetometerLastSample(null);
+    setMagnetometerLastSampleAt(null);
+    setMagnetometerStatus(magnetometerAvailable ? 'listening' : 'no_data');
 
     if (accelerometerAvailable) {
       Accelerometer.setUpdateInterval(IMU_UPDATE_INTERVAL_MS);
@@ -102,6 +122,19 @@ export function useImuTracking() {
         setGyroscopeStatus('listening');
       });
     }
+    if (magnetometerAvailable) {
+      Magnetometer.setUpdateInterval(IMU_UPDATE_INTERVAL_MS);
+      magnetometerSubscriptionRef.current = Magnetometer.addListener((data) => {
+        setMagnetometerLastSample({
+          x: data.x,
+          y: data.y,
+          z: data.z,
+        });
+        setMagnetometerLastSampleAt(Date.now());
+        setMagnetometerSampleCount((prev) => prev + 1);
+        setMagnetometerStatus('listening');
+      });
+    }
 
     clearWatchdog();
     watchdogTimerRef.current = setInterval(() => {
@@ -120,6 +153,14 @@ export function useImuTracking() {
         setGyroscopeLastSampleAt((prev) => {
           if (prev != null && now - prev > NO_DATA_TIMEOUT_MS) {
             setGyroscopeStatus('no_data');
+          }
+          return prev;
+        });
+      }
+      if (magnetometerAvailable) {
+        setMagnetometerLastSampleAt((prev) => {
+          if (prev != null && now - prev > NO_DATA_TIMEOUT_MS) {
+            setMagnetometerStatus('no_data');
           }
           return prev;
         });
@@ -144,8 +185,15 @@ export function useImuTracking() {
     gyroscopeLastSample,
     gyroscopeLastSampleAt,
     gyroscopeSampleCount,
+    magnetometerStatus,
+    magnetometerLastSample,
+    magnetometerLastSampleAt,
+    magnetometerSampleCount,
     start,
     stop,
-    isRunning: status !== 'off' || gyroscopeStatus !== 'off',
+    isRunning:
+      status !== 'off' ||
+      gyroscopeStatus !== 'off' ||
+      magnetometerStatus !== 'off',
   };
 }
