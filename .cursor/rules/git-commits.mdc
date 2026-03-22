@@ -1,0 +1,50 @@
+---
+description: Git commit messages — Conventional Commits, English only
+alwaysApply: true
+---
+
+# Commit messages
+
+When proposing, writing, or amending **git commit messages** (including multi-commit splits), follow this exactly.
+
+## Language
+
+- **English only** for the subject line and body. Do not use Russian or other languages in commits.
+- UI copy, docs, and user-facing strings in the app may stay localized; commits are not user-facing.
+
+## Format (Conventional Commits)
+
+```
+<type>(optional scope): <short description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+- **type** (common): `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`, `revert`
+- **scope**: optional, short noun — e.g. `history`, `rides`, `gpx`, `android` (lowercase)
+- **description**: imperative mood, **no period** at the end, **~72 characters or fewer**, start lowercase after the colon space
+
+## Examples
+
+Good:
+
+- `feat(history): add my rides and imported tabs with swipe`
+- `fix(android): avoid pager-view codegen failure in CMake build`
+- `chore(deps): sync package-lock.json`
+
+Bad:
+
+- `feat: История` (wrong language)
+- `Fixed bug.` (not imperative; unnecessary period)
+- `update stuff` (missing conventional type)
+
+## Body and multiple commits
+
+- Use the **body** to explain *why* or *what* changed when it is not obvious from the subject (bullet list is fine).
+- When splitting work into several commits, give **each** commit its own conventional English subject; order commits logically (e.g. types/data before UI).
+
+## Amending and hooks
+
+- If the user’s environment appends lines via a git hook (e.g. `Made-with:`), do not remove them unless the user asks; focus your message on the conventional title and body above.
