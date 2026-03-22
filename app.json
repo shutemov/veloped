@@ -57,7 +57,8 @@
           "isAndroidForegroundServiceEnabled": true
         }
       ],
-      "expo-osm-sdk/plugin"
+      "expo-osm-sdk/plugin",
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

@@ -16,6 +16,13 @@
         "buildType": "apk"
       }
     },
+    "release-apk": {
+      "distribution": "internal",
+      "developmentClient": false,
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"

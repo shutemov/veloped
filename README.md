@@ -26,7 +26,6 @@
 ## Установка
 
 ```bash
-cd veloped
 npm install
 ```
 
@@ -46,6 +45,26 @@ npx expo run:android
 # Или через EAS Build (облачная сборка)
 eas build --profile development --platform android
 ```
+
+### Обычный APK (release, не dev build)
+
+Сборка с **вшитым JS-бандлом**, без подключения к Metro и без dev-клиента в конфигурации EAS.
+
+**Локально** (нужен Android SDK, папка `android/` уже есть после `npx expo run:android`):
+
+```bash
+npm run android:release
+```
+
+APK: `android/app/build/outputs/apk/release/app-release.apk` (подпись — по настройкам `android/app` / keystore).
+
+**Через EAS** (облако):
+
+```bash
+eas build --profile release-apk --platform android
+```
+
+Профиль `preview` тоже даёт APK без `developmentClient`; `release-apk` явно фиксирует это в `eas.json`.
 
 ### Expo Go (ограниченная функциональность)
 

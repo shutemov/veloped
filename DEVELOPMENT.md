@@ -147,9 +147,14 @@ npm install
 
 # Запустить сборку и установить на устройство/эмулятор
 npx expo run:android
+
+# Release APK (вшитый бандл, не dev-сборка)
+npm run android:release
 ```
 
 При первом запуске будет создана папка `android/` с нативным кодом.
+
+Release-вариант кладёт APK в `android/app/build/outputs/apk/release/`. Для публикации в Google Play обычно нужен AAB (`eas build --profile production`).
 
 **Почему локальный prebuild мог падать:** в `app.json` в `plugins` нужно указывать плагин как **`expo-osm-sdk/plugin`**, а не `expo-osm-sdk`. У пакета плагин лежит в `expo-plugin.js` и экспортируется по подпути `/plugin`; основной экспорт — это компоненты карты, и при попытке загрузить его как config plugin возникает ошибка (`Unexpected token 'typeof'`). С правильным путём `expo-osm-sdk/plugin` и локальный `npx expo prebuild`, и EAS Build работают.
 
@@ -166,15 +171,18 @@ npx expo run:android
 | 3 | Войти: `eas login` (откроется браузер или ввод логина/пароля в терминале). |
 | 4 | В папке проекта запустить сборку (см. команды ниже). |
 
-В проекте уже есть `eas.json` с профилями `development` и `preview` (оба собирают APK).
+В проекте уже есть `eas.json`: `development` (dev client + APK), `preview` и **`release-apk`** (обычный APK без dev client), `production` (AAB).
 
 ```bash
 cd veloped
 
-# APK для тестирования (preview)
+# Обычный APK без dev build (рекомендуется для «просто APK»)
+eas build --profile release-apk --platform android
+
+# APK для внутреннего теста (аналогично по сути preview)
 eas build --profile preview --platform android
 
-# Либо development-сборка с dev-клиентом
+# Development-сборка с dev-клиентом
 eas build --profile development --platform android
 ```
 
