@@ -1,13 +1,17 @@
 import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import {
+  View,
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
 import { TrackingState } from '../types';
 
 interface TrackingButtonProps {
   state: TrackingState;
   onStart: () => void;
   onStop: () => void;
-  onSave: () => void;
-  onDiscard: () => void;
   disabled?: boolean;
 }
 
@@ -15,8 +19,6 @@ export function TrackingButton({
   state,
   onStart,
   onStop,
-  onSave,
-  onDiscard,
   disabled,
 }: TrackingButtonProps) {
   if (state === 'idle') {
@@ -43,19 +45,9 @@ export function TrackingButton({
   }
 
   return (
-    <View style={styles.finishedContainer}>
-      <TouchableOpacity
-        style={[styles.button, styles.discardButton]}
-        onPress={onDiscard}
-      >
-        <Text style={styles.discardText}>Удалить</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.button, styles.saveButton]}
-        onPress={onSave}
-      >
-        <Text style={styles.buttonText}>Сохранить</Text>
-      </TouchableOpacity>
+    <View style={[styles.button, styles.savingButton]} accessibilityRole="progressbar">
+      <ActivityIndicator color="#4CAF50" style={styles.savingSpinner} />
+      <Text style={styles.savingText}>Сохраняем в историю…</Text>
     </View>
   );
 }
@@ -75,13 +67,21 @@ const styles = StyleSheet.create({
   stopButton: {
     backgroundColor: '#f44336',
   },
-  saveButton: {
-    backgroundColor: '#4CAF50',
-  },
-  discardButton: {
+  savingButton: {
+    flexDirection: 'row',
     backgroundColor: '#fff',
     borderWidth: 2,
-    borderColor: '#f44336',
+    borderColor: '#4CAF50',
+    minWidth: 240,
+    paddingHorizontal: 24,
+  },
+  savingSpinner: {
+    marginRight: 10,
+  },
+  savingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2E7D32',
   },
   disabled: {
     backgroundColor: '#ccc',
@@ -90,14 +90,5 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
-  },
-  discardText: {
-    color: '#f44336',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  finishedContainer: {
-    flexDirection: 'row',
-    gap: 16,
   },
 });

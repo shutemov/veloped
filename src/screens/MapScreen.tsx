@@ -15,6 +15,7 @@ import { useTracking } from '../hooks/useTracking';
 import { useRides } from '../hooks/useRides';
 import { StatsBar } from '../components/StatsBar';
 import { TrackingButton } from '../components/TrackingButton';
+import { calculateTotalDistance } from '../utils/haversine';
 import { Coordinate, Ride } from '../types';
 
 type MapScreenMarker =
@@ -59,6 +60,7 @@ export function MapScreen() {
   const [isLocating, setIsLocating] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
   const startMarkerPendingRef = useRef(false);
+  const autoPersistedForStartTimeRef = useRef<number | null>(null);
 
   const animateToLocationSafe = useCallback(
     async (latitude: number, longitude: number) => {
@@ -141,6 +143,50 @@ export function MapScreen() {
     }
   }, [animateToLocationSafe, currentLocation, state]);
 
+  useEffect(() => {
+    if (state === 'idle') {
+      autoPersistedForStartTimeRef.current = null;
+    }
+    if (state !== 'finished') {
+      return;
+    }
+
+    const startTime = getStartTime();
+    if (startTime == null || coordinates.length === 0) {
+      void reset();
+      return;
+    }
+
+    if (autoPersistedForStartTimeRef.current === startTime) {
+      return;
+    }
+    autoPersistedForStartTimeRef.current = startTime;
+
+    const run = async () => {
+      const ride: Ride = {
+        id: `ride_${startTime}`,
+        startTime,
+        endTime: Date.now(),
+        durationSeconds: Math.max(0, Math.floor((Date.now() - startTime) / 1000)),
+        distanceKm: calculateTotalDistance(coordinates),
+        coordinates,
+        source: 'recorded',
+      };
+
+      try {
+        await saveRide(ride);
+        Alert.alert('Готово', 'Поездка сохранена в истории.', [{ text: 'OK' }]);
+      } catch {
+        Alert.alert('Ошибка', 'Не удалось сохранить поездку.', [{ text: 'OK' }]);
+      } finally {
+        await reset();
+        autoPersistedForStartTimeRef.current = null;
+      }
+    };
+
+    void run();
+  }, [state, coordinates, getStartTime, saveRide, reset]);
+
   const initializeLocation = async () => {
     const location = await getCurrentPosition();
     if (location) {
@@ -200,44 +246,6 @@ export function MapScreen() {
 
   const handleStop = () => {
     stop();
-  };
-
-  const handleSave = async () => {
-    const startTime = getStartTime();
-    if (!startTime || coordinates.length === 0) {
-      reset();
-      return;
-    }
-
-    const ride: Ride = {
-      id: `ride_${startTime}`,
-      startTime,
-      endTime: Date.now(),
-      durationSeconds,
-      distanceKm,
-      coordinates,
-      source: 'recorded',
-    };
-
-    try {
-      await saveRide(ride);
-      Alert.alert('Готово', 'Поездка сохранена!', [{ text: 'OK' }]);
-    } catch (error) {
-      Alert.alert('Ошибка', 'Не удалось сохранить поездку.', [{ text: 'OK' }]);
-    }
-
-    reset();
-  };
-
-  const handleDiscard = () => {
-    Alert.alert(
-      'Удалить поездку?',
-      'Данные этой поездки будут потеряны.',
-      [
-        { text: 'Отмена', style: 'cancel' },
-        { text: 'Удалить', style: 'destructive', onPress: () => reset() },
-      ]
-    );
   };
 
   const polylineCoords = coordinates.map((c) => ({
@@ -348,8 +356,6 @@ export function MapScreen() {
           state={state}
           onStart={handleStart}
           onStop={handleStop}
-          onSave={handleSave}
-          onDiscard={handleDiscard}
           disabled={permissionStatus === 'denied'}
         />
       </View>
