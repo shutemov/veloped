@@ -7,8 +7,6 @@ import {
   PanResponder,
   Pressable,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 type Props = {
   /** Высота шторки в развёрнутом виде (px). */
   expandedHeight: number;
@@ -23,9 +21,8 @@ export function RideDetailInfoSheet({
   children,
   collapsedSummary,
 }: Props) {
-  const insets = useSafeAreaInsets();
-  /** Ручка (~44) + блок сводки (~58) + safe area. */
-  const collapsedHeight = 112 + insets.bottom;
+  /** Ручка + сводка + небольшой отступ над таббаром (экран уже над навигацией, без home inset снизу). */
+  const collapsedHeight = 120;
   const maxHeight = Math.max(expandedHeight, collapsedHeight + 120);
   const collapsedOffset = maxHeight - collapsedHeight;
 
@@ -101,41 +98,44 @@ export function RideDetailInfoSheet({
         styles.sheet,
         {
           height: maxHeight,
-          paddingBottom: insets.bottom,
           transform: [{ translateY }],
         },
       ]}
     >
-      <View style={styles.dragZone} {...panResponder.panHandlers}>
-        <View style={styles.handleHit}>
-          <View
-            style={styles.handleBar}
-            accessibilityLabel="Потяните, чтобы свернуть или развернуть панель"
-          />
+      <View style={styles.sheetBody}>
+        <View style={styles.dragZone} {...panResponder.panHandlers}>
+          <View style={styles.handleHit}>
+            <View
+              style={styles.handleBar}
+              accessibilityLabel="Потяните, чтобы свернуть или развернуть панель"
+            />
+          </View>
+          {isCollapsed ? (
+            <Pressable
+              style={styles.collapsedRow}
+              onPress={() => snapTo(0)}
+              accessibilityRole="button"
+              accessibilityLabel="Развернуть панель с деталями поездки"
+            >
+              {collapsedSummary}
+            </Pressable>
+          ) : null}
         </View>
-        {isCollapsed ? (
-          <Pressable
-            style={styles.collapsedRow}
-            onPress={() => snapTo(0)}
-            accessibilityRole="button"
-            accessibilityLabel="Развернуть панель с деталями поездки"
+        <View style={styles.sheetScrollWrap}>
+          <ScrollView
+            style={styles.sheetScroll}
+            contentContainerStyle={[
+              styles.sheetScrollContent,
+              { paddingBottom: 12 },
+            ]}
+            scrollEnabled={!isCollapsed}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
           >
-            {collapsedSummary}
-          </Pressable>
-        ) : null}
+            {children}
+          </ScrollView>
+        </View>
       </View>
-      <ScrollView
-        style={styles.sheetScroll}
-        contentContainerStyle={[
-          styles.sheetScrollContent,
-          { paddingBottom: 12 },
-        ]}
-        scrollEnabled={!isCollapsed}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator
-      >
-        {children}
-      </ScrollView>
     </Animated.View>
   );
 }
@@ -155,6 +155,14 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 10,
     overflow: 'hidden',
+  },
+  sheetBody: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  sheetScrollWrap: {
+    flex: 1,
+    minHeight: 0,
   },
   dragZone: {
     flexShrink: 0,
@@ -178,8 +186,10 @@ const styles = StyleSheet.create({
   },
   sheetScroll: {
     flex: 1,
+    minHeight: 0,
   },
   sheetScrollContent: {
+    flexGrow: 1,
     paddingTop: 4,
     paddingHorizontal: 16,
   },

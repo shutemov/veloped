@@ -162,6 +162,15 @@ export function RideDetailScreen() {
     sampledCoordCount >= RIDE_ROUTE_HEAVY_POINT_THRESHOLD &&
     routeGeometry === null;
 
+  const [screenLayoutHeight, setScreenLayoutHeight] = React.useState<number | null>(null);
+
+  const handleScreenRootLayout = React.useCallback((event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+    if (height > 0) {
+      setScreenLayoutHeight((prev) => (prev === height ? prev : height));
+    }
+  }, []);
+
   const handleMapLayout = React.useCallback((event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     if (width <= 0 || height <= 0) return;
@@ -278,10 +287,13 @@ export function RideDetailScreen() {
     );
   }
 
-  const sheetExpandedHeight = Math.min(
-    Math.max(Math.round(windowHeight * 0.5), 300),
-    480
-  );
+  const sheetExpandedHeight = React.useMemo(() => {
+    if (screenLayoutHeight != null && screenLayoutHeight > 0) {
+      return Math.round(screenLayoutHeight);
+    }
+    // До первого onLayout — оценка по окну (таббар и шапка уже «внутри» высоты экрана не вычитаются точно).
+    return Math.max(280, Math.round(windowHeight * 0.65));
+  }, [screenLayoutHeight, windowHeight]);
 
   const collapsedSummary = (
     <View style={styles.collapsedStatsRow}>
@@ -298,7 +310,7 @@ export function RideDetailScreen() {
   );
 
   return (
-    <View style={styles.screenRoot}>
+    <View style={styles.screenRoot} onLayout={handleScreenRootLayout}>
       <View style={styles.mapContainer} onLayout={handleMapLayout}>
         {isHeavyRouteLoading ? (
           <View style={styles.routeCardLoading}>
