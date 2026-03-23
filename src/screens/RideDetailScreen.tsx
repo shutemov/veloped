@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
   type LayoutChangeEvent,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
@@ -32,6 +33,8 @@ type RideDetailParams = {
 };
 
 type RideDetailNavigationProp = NativeStackNavigationProp<RideDetailParams, 'RideDetail'>;
+const DETAIL_SLIDER_DEBOUNCE_MS = 120;
+const RIDE_POLYLINE_ID = 'ride_route';
 
 export function RideDetailScreen() {
   const { height: windowHeight } = useWindowDimensions();
@@ -41,6 +44,8 @@ export function RideDetailScreen() {
   const [isPointsModalVisible, setIsPointsModalVisible] = React.useState(false);
   const [isMapReady, setIsMapReady] = React.useState(false);
   const [exportingGpx, setExportingGpx] = React.useState(false);
+  const [detailStep, setDetailStep] = React.useState(1);
+  const [detailStepInput, setDetailStepInput] = React.useState(1);
   const [routeGeometry, setRouteGeometry] = React.useState<PreparedRouteGeometry | null>(null);
   const [mapViewport, setMapViewport] = React.useState<{ width: number; height: number } | null>(
     null
@@ -50,13 +55,51 @@ export function RideDetailScreen() {
   const ride = getRide(route.params.rideId);
   const rideId = route.params.rideId;
   const coordCount = ride?.coordinates.length ?? 0;
+  const detailMaxStep = Math.max(1, Math.min(12, Math.floor(coordCount / 2)));
+  const sampledCoords = React.useMemo(() => {
+    if (!ride) return [];
+    if (detailStep <= 1) return ride.coordinates;
+    const sampled = ride.coordinates.filter((_, index) => index % detailStep === 0);
+    const lastPoint = ride.coordinates[ride.coordinates.length - 1];
+    if (lastPoint && sampled[sampled.length - 1] !== lastPoint) {
+      sampled.push(lastPoint);
+    }
+    return sampled;
+  }, [ride, detailStep]);
+  const sampledCoordCount = sampledCoords.length;
+
+  React.useEffect(() => {
+    setDetailStep((prev) => Math.min(prev, detailMaxStep));
+    setDetailStepInput((prev) => Math.min(prev, detailMaxStep));
+  }, [detailMaxStep]);
+
+  React.useEffect(() => {
+    const nextStep = Math.max(1, Math.min(detailStepInput, detailMaxStep));
+    const timeoutId = setTimeout(() => {
+      setDetailStep(nextStep);
+    }, DETAIL_SLIDER_DEBOUNCE_MS);
+    return () => clearTimeout(timeoutId);
+  }, [detailStepInput, detailMaxStep]);
+
+  const handleDetailSliderChange = React.useCallback((value: number) => {
+    setDetailStepInput(value);
+  }, []);
+
+  const handleDetailSliderComplete = React.useCallback(
+    (value: number) => {
+      const step = Math.max(1, Math.min(Math.round(value), detailMaxStep));
+      setDetailStepInput(step);
+      setDetailStep(step);
+    },
+    [detailMaxStep]
+  );
 
   React.useLayoutEffect(() => {
     if (!ride) {
       setRouteGeometry(null);
       return;
     }
-    const coords = ride.coordinates;
+    const coords = sampledCoords;
     if (coords.length === 0) {
       setRouteGeometry(prepareRideRouteGeometry([]));
       return;
@@ -66,14 +109,14 @@ export function RideDetailScreen() {
       return;
     }
     setRouteGeometry(null);
-  }, [rideId, ride]);
+  }, [rideId, ride, sampledCoords]);
 
   React.useEffect(() => {
-    if (!ride || coordCount < RIDE_ROUTE_HEAVY_POINT_THRESHOLD) {
+    if (!ride || sampledCoordCount < RIDE_ROUTE_HEAVY_POINT_THRESHOLD) {
       return;
     }
     let cancelled = false;
-    const coords = ride.coordinates;
+    const coords = sampledCoords;
     const g = globalThis as typeof globalThis & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
       cancelIdleCallback?: (id: number) => void;
@@ -101,7 +144,7 @@ export function RideDetailScreen() {
         cancelIdle(idleId);
       }
     };
-  }, [rideId, ride, coordCount]);
+  }, [rideId, ride, sampledCoordCount, sampledCoords]);
 
   const normalizedCoords = routeGeometry?.normalizedCoords ?? [];
   const polylineCoords = routeGeometry?.polylineCoords ?? [];
@@ -116,7 +159,7 @@ export function RideDetailScreen() {
 
   const isHeavyRouteLoading =
     ride != null &&
-    coordCount >= RIDE_ROUTE_HEAVY_POINT_THRESHOLD &&
+    sampledCoordCount >= RIDE_ROUTE_HEAVY_POINT_THRESHOLD &&
     routeGeometry === null;
 
   const handleMapLayout = React.useCallback((event: LayoutChangeEvent) => {
@@ -262,7 +305,7 @@ export function RideDetailScreen() {
             <ActivityIndicator size="large" color="#4CAF50" />
             <Text style={styles.routeCardLoadingTitle}>Готовим маршрут…</Text>
             <Text style={styles.routeCardLoadingHint}>
-              {coordCount.toLocaleString('ru-RU')} точек на карте
+              {sampledCoordCount.toLocaleString('ru-RU')} точек на карте
             </Text>
           </View>
         ) : (
@@ -283,7 +326,7 @@ export function RideDetailScreen() {
                 isMapReady && polylineCoords.length > 1
                   ? [
                       {
-                        id: 'ride_route',
+                        id: RIDE_POLYLINE_ID,
                         coordinates: polylineCoords,
                         strokeColor: '#4CAF50',
                         strokeWidth: 6,
@@ -340,6 +383,28 @@ export function RideDetailScreen() {
               </Text>
               <Text style={styles.statLabel}>Ср. скорость, км/ч</Text>
             </View>
+          </View>
+
+          <View style={styles.detailControlBlock}>
+            <View style={styles.detailControlHeader}>
+              <Text style={styles.detailControlTitle}>Детализация карты</Text>
+              <Text style={styles.detailControlValue}>каждая {detailStepInput}-я</Text>
+            </View>
+            <Slider
+              minimumValue={1}
+              maximumValue={detailMaxStep}
+              step={1}
+              value={detailStepInput}
+              onValueChange={handleDetailSliderChange}
+              onSlidingComplete={handleDetailSliderComplete}
+              minimumTrackTintColor="#4CAF50"
+              maximumTrackTintColor="#d0d0d0"
+              thumbTintColor="#4CAF50"
+            />
+            <Text style={styles.detailControlHint}>
+              Показано {sampledCoordCount.toLocaleString('ru-RU')} из{' '}
+              {coordCount.toLocaleString('ru-RU')} точек
+            </Text>
           </View>
 
           {isImportedRide(ride) && (
@@ -549,6 +614,35 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e8e8e8',
+  },
+  detailControlBlock: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+  detailControlHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 6,
+  },
+  detailControlTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  detailControlValue: {
+    fontSize: 13,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  detailControlHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#777',
   },
   sourceTitle: {
     fontSize: 16,
