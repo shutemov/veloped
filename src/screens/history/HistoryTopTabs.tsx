@@ -20,18 +20,14 @@ import type { Ride } from '../../types';
 
 function MyRidesPage({
   width,
+  rides,
   navigateToRideDetail,
 }: {
   width: number;
+  rides: Ride[];
   navigateToRideDetail: (ride: Ride) => void;
 }) {
-  const { recordedRides, loading, refresh } = useHistoryScreenContext();
-  const [sortMode, setSortMode] = React.useState<RideListSortMode>('date');
-
-  const displayedRides = React.useMemo(
-    () => sortRidesForList(recordedRides, sortMode),
-    [recordedRides, sortMode]
-  );
+  const { loading, refresh } = useHistoryScreenContext();
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -44,19 +40,14 @@ function MyRidesPage({
 
   return (
     <View style={[styles.tabPage, { width }]}>
-      {recordedRides.length > 0 && (
-        <HistoryRidesSortChips sortMode={sortMode} onSortModeChange={setSortMode} />
-      )}
       <FlatList
-        data={displayedRides}
+        data={rides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <RideCard ride={item} onPress={() => navigateToRideDetail(item)} />
         )}
         ListEmptyComponent={renderEmpty}
-        contentContainerStyle={
-          displayedRides.length === 0 ? styles.emptyList : styles.list
-        }
+        contentContainerStyle={rides.length === 0 ? styles.emptyList : styles.list}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={refresh} />
         }
@@ -68,18 +59,14 @@ function MyRidesPage({
 
 function ImportedRidesPage({
   width,
+  rides,
   navigateToRideDetail,
 }: {
   width: number;
+  rides: Ride[];
   navigateToRideDetail: (ride: Ride) => void;
 }) {
   const { importedRides, loading, refresh } = useHistoryScreenContext();
-  const [sortMode, setSortMode] = React.useState<RideListSortMode>('date');
-
-  const displayedRides = React.useMemo(
-    () => sortRidesForList(importedRides, sortMode),
-    [importedRides, sortMode]
-  );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -93,11 +80,8 @@ function ImportedRidesPage({
 
   return (
     <View style={[styles.tabPage, { width }]}>
-      {importedRides.length > 0 && (
-        <HistoryRidesSortChips sortMode={sortMode} onSortModeChange={setSortMode} />
-      )}
       <FlatList
-        data={displayedRides}
+        data={rides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <ImportedRideCard
@@ -120,12 +104,36 @@ function ImportedRidesPage({
 
 export function HistoryTopTabs() {
   const { width } = useWindowDimensions();
-  const { setActiveTab, navigateToRideDetail, registerSwitchToImportedTab } =
-    useHistoryScreenContext();
+  const {
+    recordedRides,
+    importedRides,
+    setActiveTab,
+    navigateToRideDetail,
+    registerSwitchToImportedTab,
+  } = useHistoryScreenContext();
   const scrollRef = React.useRef<ScrollView>(null);
   const [pageIndex, setPageIndex] = React.useState(0);
+  const [sortModeMy, setSortModeMy] = React.useState<RideListSortMode>('date');
+  const [sortModeImported, setSortModeImported] =
+    React.useState<RideListSortMode>('date');
   const pageIndexRef = React.useRef(pageIndex);
   pageIndexRef.current = pageIndex;
+
+  const displayedRecorded = React.useMemo(
+    () => sortRidesForList(recordedRides, sortModeMy),
+    [recordedRides, sortModeMy]
+  );
+  const displayedImported = React.useMemo(
+    () => sortRidesForList(importedRides, sortModeImported),
+    [importedRides, sortModeImported]
+  );
+
+  /** Какая страница пейджера визуально по центру — для фиксированных чипов над списком. */
+  const [scrollPage, setScrollPage] = React.useState(0);
+
+  React.useEffect(() => {
+    setScrollPage(pageIndex);
+  }, [pageIndex]);
 
   const goToPage = React.useCallback(
     (index: number) => {
@@ -161,6 +169,16 @@ export function HistoryTopTabs() {
     [width, pageIndex, setActiveTab]
   );
 
+  const onPagerScroll = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const x = e.nativeEvent.contentOffset.x;
+      const w = Math.max(width, 1);
+      const p = Math.min(1, Math.max(0, Math.round(x / w)));
+      setScrollPage(p);
+    },
+    [width]
+  );
+
   return (
     <View style={styles.root}>
       <View style={styles.tabBar}>
@@ -192,18 +210,38 @@ export function HistoryTopTabs() {
         </Pressable>
       </View>
 
+      {scrollPage === 0 && recordedRides.length > 0 ? (
+        <HistoryRidesSortChips sortMode={sortModeMy} onSortModeChange={setSortModeMy} />
+      ) : null}
+      {scrollPage === 1 && importedRides.length > 0 ? (
+        <HistoryRidesSortChips
+          sortMode={sortModeImported}
+          onSortModeChange={setSortModeImported}
+        />
+      ) : null}
+
       <ScrollView
         ref={scrollRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
+        onScroll={onPagerScroll}
+        scrollEventThrottle={16}
         onMomentumScrollEnd={onMomentumScrollEnd}
         keyboardShouldPersistTaps="handled"
         nestedScrollEnabled
         style={styles.pager}
       >
-        <MyRidesPage width={width} navigateToRideDetail={navigateToRideDetail} />
-        <ImportedRidesPage width={width} navigateToRideDetail={navigateToRideDetail} />
+        <MyRidesPage
+          width={width}
+          rides={displayedRecorded}
+          navigateToRideDetail={navigateToRideDetail}
+        />
+        <ImportedRidesPage
+          width={width}
+          rides={displayedImported}
+          navigateToRideDetail={navigateToRideDetail}
+        />
       </ScrollView>
     </View>
   );
