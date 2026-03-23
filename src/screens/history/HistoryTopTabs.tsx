@@ -14,9 +14,9 @@ import {
 import { useHistoryScreenContext } from '../../context/HistoryScreenContext';
 import { RideCard } from '../../components/RideCard';
 import { ImportedRideCard } from '../../components/ImportedRideCard';
+import { HistoryRidesSortChips } from '../../components/HistoryRidesSortChips';
+import { sortRidesForList, type RideListSortMode } from '../../utils/sortRidesForList';
 import type { Ride } from '../../types';
-
-type MyRidesSortMode = 'date' | 'distance';
 
 function MyRidesPage({
   width,
@@ -26,15 +26,12 @@ function MyRidesPage({
   navigateToRideDetail: (ride: Ride) => void;
 }) {
   const { recordedRides, loading, refresh } = useHistoryScreenContext();
-  const [sortMode, setSortMode] = React.useState<MyRidesSortMode>('date');
+  const [sortMode, setSortMode] = React.useState<RideListSortMode>('date');
 
-  const displayedRides =
-    sortMode === 'date'
-      ? recordedRides
-      : [...recordedRides].sort(
-          (a, b) =>
-            b.distanceKm - a.distanceKm || b.startTime - a.startTime || a.id.localeCompare(b.id)
-        );
+  const displayedRides = React.useMemo(
+    () => sortRidesForList(recordedRides, sortMode),
+    [recordedRides, sortMode]
+  );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -48,44 +45,7 @@ function MyRidesPage({
   return (
     <View style={[styles.tabPage, { width }]}>
       {recordedRides.length > 0 && (
-        <View style={styles.sortRow}>
-          <Pressable
-            onPress={() => setSortMode('date')}
-            style={[
-              styles.sortChip,
-              sortMode === 'date' && styles.sortChipActive,
-            ]}
-            accessibilityRole="button"
-            accessibilityState={{ selected: sortMode === 'date' }}
-          >
-            <Text
-              style={[
-                styles.sortChipText,
-                sortMode === 'date' && styles.sortChipTextActive,
-              ]}
-            >
-              Сначала новые
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setSortMode('distance')}
-            style={[
-              styles.sortChip,
-              sortMode === 'distance' && styles.sortChipActive,
-            ]}
-            accessibilityRole="button"
-            accessibilityState={{ selected: sortMode === 'distance' }}
-          >
-            <Text
-              style={[
-                styles.sortChipText,
-                sortMode === 'distance' && styles.sortChipTextActive,
-              ]}
-            >
-              По длине
-            </Text>
-          </Pressable>
-        </View>
+        <HistoryRidesSortChips sortMode={sortMode} onSortModeChange={setSortMode} />
       )}
       <FlatList
         data={displayedRides}
@@ -114,6 +74,12 @@ function ImportedRidesPage({
   navigateToRideDetail: (ride: Ride) => void;
 }) {
   const { importedRides, loading, refresh } = useHistoryScreenContext();
+  const [sortMode, setSortMode] = React.useState<RideListSortMode>('date');
+
+  const displayedRides = React.useMemo(
+    () => sortRidesForList(importedRides, sortMode),
+    [importedRides, sortMode]
+  );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -127,8 +93,11 @@ function ImportedRidesPage({
 
   return (
     <View style={[styles.tabPage, { width }]}>
+      {importedRides.length > 0 && (
+        <HistoryRidesSortChips sortMode={sortMode} onSortModeChange={setSortMode} />
+      )}
       <FlatList
-        data={importedRides}
+        data={displayedRides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <ImportedRideCard
@@ -283,35 +252,6 @@ const styles = StyleSheet.create({
   tabPage: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-  },
-  sortRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 4,
-    backgroundColor: '#f5f5f5',
-  },
-  sortChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  sortChipActive: {
-    backgroundColor: '#E8F5E9',
-    borderColor: '#4CAF50',
-  },
-  sortChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-  },
-  sortChipTextActive: {
-    color: '#2E7D32',
   },
   list: {
     paddingVertical: 8,
