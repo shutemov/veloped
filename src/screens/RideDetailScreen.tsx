@@ -20,6 +20,8 @@ import { ShareGpxHeaderButton } from '../components/ShareGpxHeaderButton';
 import { formatDate, formatTime, formatDistance, formatDuration } from '../utils/formatters';
 import { shareSingleRideAsGpx, ShareGpxError } from '../utils/shareAllRidesGpx';
 import { importKindLabel, isImportedRide } from '../utils/rideSource';
+import { haversineDistance } from '../utils/haversine';
+import type { Coordinate } from '../types';
 import {
   prepareRideRouteGeometry,
   calculateRouteFitZoom,
@@ -33,8 +35,100 @@ type RideDetailParams = {
 };
 
 type RideDetailNavigationProp = NativeStackNavigationProp<RideDetailParams, 'RideDetail'>;
-const DETAIL_SLIDER_DEBOUNCE_MS = 120;
 const RIDE_POLYLINE_ID = 'ride_route';
+const OUTLIER_SPEED_THRESHOLD_KMH = 72;
+const OUTLIER_SPIKE_RATIO = 1.9;
+const OUTLIER_MIN_SEGMENT_METERS = 35;
+const OUTLIER_MAX_DIRECT_METERS = 75;
+const OUTLIER_LARGE_JUMP_METERS = 180;
+const OUTLIER_PASSES = 2;
+
+function deltaTimeHours(fromTs: number, toTs: number): number | null {
+  if (!Number.isFinite(fromTs) || !Number.isFinite(toTs)) return null;
+  const rawDelta = toTs - fromTs;
+  if (rawDelta <= 0) return null;
+  // Импорт может прийти в секундах (Unix sec) или миллисекундах (Unix ms).
+  const isSeconds = Math.max(fromTs, toTs) < 1e11;
+  const deltaMs = isSeconds ? rawDelta * 1000 : rawDelta;
+  if (deltaMs <= 0) return null;
+  return deltaMs / 3_600_000;
+}
+
+function filterRouteOutliers(
+  coords: Coordinate[]
+): { filtered: Coordinate[]; removed: number } {
+  if (coords.length < 3) {
+    return { filtered: coords, removed: 0 };
+  }
+
+  const runSinglePass = (source: Coordinate[]): { filtered: Coordinate[]; removed: number } => {
+    if (source.length < 3) {
+      return { filtered: source, removed: 0 };
+    }
+    const kept: Coordinate[] = [source[0]];
+    let removed = 0;
+
+    for (let i = 1; i < source.length - 1; i += 1) {
+      const prev = kept[kept.length - 1];
+      const curr = source[i];
+      const next = source[i + 1];
+
+      const prevDistKm = haversineDistance(prev, curr);
+      const nextDistKm = haversineDistance(curr, next);
+      const directDistKm = haversineDistance(prev, next);
+
+      const prevHours = deltaTimeHours(prev.timestamp, curr.timestamp);
+      const nextHours = deltaTimeHours(curr.timestamp, next.timestamp);
+      const prevSpeedKmh = prevHours != null && prevHours > 0 ? prevDistKm / prevHours : 0;
+      const nextSpeedKmh = nextHours != null && nextHours > 0 ? nextDistKm / nextHours : 0;
+
+      const prevMeters = prevDistKm * 1000;
+      const nextMeters = nextDistKm * 1000;
+      const detourMeters = prevMeters + nextMeters;
+      const directMeters = directDistKm * 1000;
+
+      const looksLikeSpike =
+        prevMeters > OUTLIER_MIN_SEGMENT_METERS &&
+        nextMeters > OUTLIER_MIN_SEGMENT_METERS &&
+        directMeters < OUTLIER_MAX_DIRECT_METERS &&
+        detourMeters > directMeters * OUTLIER_SPIKE_RATIO;
+      const looksLikeImpossibleSpeed =
+        (prevSpeedKmh > OUTLIER_SPEED_THRESHOLD_KMH || nextSpeedKmh > OUTLIER_SPEED_THRESHOLD_KMH) &&
+        directMeters < OUTLIER_MAX_DIRECT_METERS * 2;
+      const looksLikeLargeJumpBack =
+        prevMeters > OUTLIER_LARGE_JUMP_METERS &&
+        nextMeters > OUTLIER_LARGE_JUMP_METERS &&
+        directMeters < OUTLIER_MAX_DIRECT_METERS * 1.2;
+
+      if (looksLikeSpike || looksLikeImpossibleSpeed || looksLikeLargeJumpBack) {
+        removed += 1;
+        continue;
+      }
+      kept.push(curr);
+    }
+
+    kept.push(source[source.length - 1]);
+    return { filtered: kept, removed };
+  };
+
+  let filtered = coords;
+  let removedTotal = 0;
+  for (let pass = 0; pass < OUTLIER_PASSES; pass += 1) {
+    const passResult = runSinglePass(filtered);
+    filtered = passResult.filtered;
+    removedTotal += passResult.removed;
+    if (passResult.removed === 0) break;
+  }
+
+  if (filtered.length < 2) {
+    return { filtered: coords, removed: 0 };
+  }
+  // Наивный фильтр не должен "ломать" трек: если срезали слишком много, возвращаем исходник.
+  if (filtered.length < Math.max(2, Math.round(coords.length * 0.25))) {
+    return { filtered: coords, removed: 0 };
+  }
+  return { filtered, removed: removedTotal };
+}
 
 export function RideDetailScreen() {
   const { height: windowHeight } = useWindowDimensions();
@@ -44,6 +138,8 @@ export function RideDetailScreen() {
   const [isPointsModalVisible, setIsPointsModalVisible] = React.useState(false);
   const [isMapReady, setIsMapReady] = React.useState(false);
   const [exportingGpx, setExportingGpx] = React.useState(false);
+  const [isOutlierFilterEnabled, setIsOutlierFilterEnabled] = React.useState(false);
+  const [isOutlierFilterProcessing, setIsOutlierFilterProcessing] = React.useState(false);
   const [detailStep, setDetailStep] = React.useState(1);
   const [detailStepInput, setDetailStepInput] = React.useState(1);
   const [routeGeometry, setRouteGeometry] = React.useState<PreparedRouteGeometry | null>(null);
@@ -66,24 +162,35 @@ export function RideDetailScreen() {
     }
     return sampled;
   }, [ride, detailStep]);
-  const sampledCoordCount = sampledCoords.length;
+  const routeCoordsResult = React.useMemo(() => {
+    if (!isOutlierFilterEnabled) {
+      return { filtered: sampledCoords, removed: 0 };
+    }
+    return filterRouteOutliers(sampledCoords);
+  }, [sampledCoords, isOutlierFilterEnabled]);
+  const routeCoords = routeCoordsResult.filtered;
+  const sampledCoordCount = routeCoords.length;
 
   React.useEffect(() => {
     setDetailStep((prev) => Math.min(prev, detailMaxStep));
     setDetailStepInput((prev) => Math.min(prev, detailMaxStep));
   }, [detailMaxStep]);
 
-  React.useEffect(() => {
-    const nextStep = Math.max(1, Math.min(detailStepInput, detailMaxStep));
-    const timeoutId = setTimeout(() => {
-      setDetailStep(nextStep);
-    }, DETAIL_SLIDER_DEBOUNCE_MS);
-    return () => clearTimeout(timeoutId);
-  }, [detailStepInput, detailMaxStep]);
+  const handleDetailSliderStart = React.useCallback(
+    (value: number) => {
+      const step = Math.max(1, Math.min(Math.round(value), detailMaxStep));
+      setDetailStepInput(step);
+    },
+    [detailMaxStep]
+  );
 
-  const handleDetailSliderChange = React.useCallback((value: number) => {
-    setDetailStepInput(value);
-  }, []);
+  const handleDetailSliderChange = React.useCallback(
+    (value: number) => {
+      const step = Math.max(1, Math.min(Math.round(value), detailMaxStep));
+      setDetailStepInput(step);
+    },
+    [detailMaxStep]
+  );
 
   const handleDetailSliderComplete = React.useCallback(
     (value: number) => {
@@ -94,29 +201,37 @@ export function RideDetailScreen() {
     [detailMaxStep]
   );
 
+  const handleToggleOutlierFilter = React.useCallback(() => {
+    setIsOutlierFilterProcessing(true);
+    setIsOutlierFilterEnabled((prev) => !prev);
+  }, []);
+
   React.useLayoutEffect(() => {
     if (!ride) {
       setRouteGeometry(null);
+      setIsOutlierFilterProcessing(false);
       return;
     }
-    const coords = sampledCoords;
+    const coords = routeCoords;
     if (coords.length === 0) {
       setRouteGeometry(prepareRideRouteGeometry([]));
+      setIsOutlierFilterProcessing(false);
       return;
     }
     if (coords.length < RIDE_ROUTE_HEAVY_POINT_THRESHOLD) {
       setRouteGeometry(prepareRideRouteGeometry(coords));
+      setIsOutlierFilterProcessing(false);
       return;
     }
-    setRouteGeometry(null);
-  }, [rideId, ride, sampledCoords]);
+    setIsOutlierFilterProcessing(true);
+  }, [rideId, ride, routeCoords]);
 
   React.useEffect(() => {
     if (!ride || sampledCoordCount < RIDE_ROUTE_HEAVY_POINT_THRESHOLD) {
       return;
     }
     let cancelled = false;
-    const coords = sampledCoords;
+    const coords = routeCoords;
     const g = globalThis as typeof globalThis & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
       cancelIdleCallback?: (id: number) => void;
@@ -127,6 +242,7 @@ export function RideDetailScreen() {
       requestAnimationFrame(() => {
         if (cancelled) return;
         setRouteGeometry(prepareRideRouteGeometry(coords));
+        setIsOutlierFilterProcessing(false);
       });
     };
     let idleId: number | undefined;
@@ -144,7 +260,7 @@ export function RideDetailScreen() {
         cancelIdle(idleId);
       }
     };
-  }, [rideId, ride, sampledCoordCount, sampledCoords]);
+  }, [rideId, ride, sampledCoordCount, routeCoords]);
 
   const normalizedCoords = routeGeometry?.normalizedCoords ?? [];
   const polylineCoords = routeGeometry?.polylineCoords ?? [];
@@ -407,6 +523,7 @@ export function RideDetailScreen() {
               maximumValue={detailMaxStep}
               step={1}
               value={detailStepInput}
+              onSlidingStart={handleDetailSliderStart}
               onValueChange={handleDetailSliderChange}
               onSlidingComplete={handleDetailSliderComplete}
               minimumTrackTintColor="#4CAF50"
@@ -417,6 +534,45 @@ export function RideDetailScreen() {
               Показано {sampledCoordCount.toLocaleString('ru-RU')} из{' '}
               {coordCount.toLocaleString('ru-RU')} точек
             </Text>
+            <Pressable
+              style={[
+                styles.outlierFilterButton,
+                isOutlierFilterProcessing
+                  ? styles.outlierFilterButtonProcessing
+                  : isOutlierFilterEnabled
+                  ? styles.outlierFilterButtonEnabled
+                  : styles.outlierFilterButtonDisabled,
+              ]}
+              onPress={handleToggleOutlierFilter}
+              disabled={isOutlierFilterProcessing}
+              accessibilityRole="button"
+              accessibilityLabel="Переключить фильтр выбросов маршрута"
+            >
+              {isOutlierFilterProcessing ? (
+                <View style={styles.outlierFilterProcessingRow}>
+                  <ActivityIndicator size="small" color="#2e7d32" />
+                  <Text style={[styles.outlierFilterButtonText, styles.outlierFilterButtonTextEnabled]}>
+                    Обрабатываем маршрут...
+                  </Text>
+                </View>
+              ) : (
+                <Text
+                  style={[
+                    styles.outlierFilterButtonText,
+                    isOutlierFilterEnabled
+                      ? styles.outlierFilterButtonTextEnabled
+                      : styles.outlierFilterButtonTextDisabled,
+                  ]}
+                >
+                  {isOutlierFilterEnabled ? 'Фильтр выбросов: включен' : 'Отфильтровать выбросы'}
+                </Text>
+              )}
+            </Pressable>
+            {isOutlierFilterEnabled ? (
+              <Text style={styles.outlierFilterHint}>
+                Убрано {routeCoordsResult.removed.toLocaleString('ru-RU')} выбросов
+              </Text>
+            ) : null}
           </View>
 
           {isImportedRide(ride) && (
@@ -655,6 +811,47 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 12,
     color: '#777',
+  },
+  outlierFilterButton: {
+    marginTop: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  outlierFilterButtonEnabled: {
+    backgroundColor: '#e8f5e9',
+    borderColor: '#4CAF50',
+  },
+  outlierFilterButtonProcessing: {
+    backgroundColor: '#e8f5e9',
+    borderColor: '#81c784',
+  },
+  outlierFilterButtonDisabled: {
+    backgroundColor: '#f7f7f7',
+    borderColor: '#d8d8d8',
+  },
+  outlierFilterButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  outlierFilterButtonTextEnabled: {
+    color: '#2e7d32',
+  },
+  outlierFilterButtonTextDisabled: {
+    color: '#4f4f4f',
+  },
+  outlierFilterProcessingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  outlierFilterHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#6b6b6b',
+    textAlign: 'center',
   },
   sourceTitle: {
     fontSize: 16,
