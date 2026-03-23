@@ -39,7 +39,13 @@ function HistoryStackNavigator() {
       <HistoryStack.Screen
         name="RideDetail"
         component={RideDetailScreen}
-        options={{ title: 'Детали поездки' }}
+        options={{
+          title: 'Детали поездки',
+          headerTitleStyle: {
+            fontSize: 15,
+            fontWeight: '600',
+          },
+        }}
       />
     </HistoryStack.Navigator>
   );
@@ -62,9 +68,7 @@ export function Navigation() {
           tabBarLabelStyle: {
             fontSize: 12,
           },
-          sceneStyle: {
-            paddingTop: insets.top,
-          },
+          // Не добавляем paddingTop: вложенный native-stack уже учитывает safe area — иначе шапка «История / Детали» визуально раздувается вдвое.
         }}
       >
         <Tab.Screen
