@@ -7,6 +7,9 @@ import {
   PanResponder,
   Pressable,
 } from 'react-native';
+const HANDLE_AREA_HEIGHT = 44;
+const DEFAULT_COLLAPSED_SUMMARY_HEIGHT = 64;
+
 type Props = {
   /** Высота шторки в развёрнутом виде (px). */
   expandedHeight: number;
@@ -15,47 +18,76 @@ type Props = {
   /** Сводка в свёрнутом виде (дистанция / время). */
   collapsedSummary: React.ReactNode;
 };
+type SheetState = 'collapsed' | 'expanded';
 
 export function RideDetailInfoSheet({
   expandedHeight,
   children,
   collapsedSummary,
 }: Props) {
-  /** Ручка + сводка + небольшой отступ над таббаром (экран уже над навигацией, без home inset снизу). */
-  const collapsedHeight = 120;
+  const [collapsedSummaryHeight, setCollapsedSummaryHeight] = React.useState(
+    DEFAULT_COLLAPSED_SUMMARY_HEIGHT
+  );
+  /** Ручка + сводка. */
+  const collapsedHeight = HANDLE_AREA_HEIGHT + collapsedSummaryHeight;
   const maxHeight = Math.max(expandedHeight, collapsedHeight + 120);
   const collapsedOffset = maxHeight - collapsedHeight;
 
   const translateY = React.useRef(new Animated.Value(collapsedOffset)).current;
+  const summaryOpacity = React.useRef(new Animated.Value(1)).current;
+  const contentOpacity = React.useRef(new Animated.Value(0)).current;
   const startOffsetRef = React.useRef(collapsedOffset);
   const currentOffsetRef = React.useRef(collapsedOffset);
-  const [isCollapsed, setIsCollapsed] = React.useState(true);
+  const [sheetState, setSheetState] = React.useState<SheetState>('collapsed');
 
   React.useEffect(() => {
     translateY.setValue(collapsedOffset);
+    summaryOpacity.setValue(1);
+    contentOpacity.setValue(0);
     startOffsetRef.current = collapsedOffset;
     currentOffsetRef.current = collapsedOffset;
-    setIsCollapsed(true);
-  }, [translateY, maxHeight, collapsedOffset]);
+    setSheetState('collapsed');
+  }, [translateY, summaryOpacity, contentOpacity, maxHeight, collapsedOffset]);
 
   const clampOffset = React.useCallback(
     (offset: number) => Math.max(0, Math.min(collapsedOffset, offset)),
     [collapsedOffset]
   );
 
+  const animateUiState = React.useCallback(
+    (nextState: SheetState) => {
+      Animated.parallel([
+        Animated.timing(summaryOpacity, {
+          toValue: nextState === 'collapsed' ? 1 : 0,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentOpacity, {
+          toValue: nextState === 'expanded' ? 1 : 0,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    },
+    [summaryOpacity, contentOpacity]
+  );
+
   const snapTo = React.useCallback(
     (targetOffset: number) => {
+      const nextState: SheetState =
+        targetOffset >= collapsedOffset - 1 ? 'collapsed' : 'expanded';
+      setSheetState(nextState);
+      animateUiState(nextState);
       Animated.spring(translateY, {
         toValue: targetOffset,
         useNativeDriver: true,
-        friction: 8,
-        tension: 90,
+        friction: 9,
+        tension: 125,
       }).start(() => {
         currentOffsetRef.current = targetOffset;
-        setIsCollapsed(targetOffset >= collapsedOffset - 1);
       });
     },
-    [translateY, collapsedOffset]
+    [translateY, collapsedOffset, animateUiState]
   );
 
   const panResponder = React.useMemo(
@@ -110,31 +142,49 @@ export function RideDetailInfoSheet({
               accessibilityLabel="Потяните, чтобы свернуть или развернуть панель"
             />
           </View>
-          {isCollapsed ? (
+          <Animated.View
+            style={[
+              styles.collapsedRowWrap,
+              {
+                opacity: summaryOpacity,
+                top: HANDLE_AREA_HEIGHT,
+              },
+            ]}
+            pointerEvents={sheetState === 'collapsed' ? 'auto' : 'none'}
+          >
             <Pressable
               style={styles.collapsedRow}
+              onLayout={(event) => {
+                const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+                if (nextHeight > 0) {
+                  setCollapsedSummaryHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+                }
+              }}
               onPress={() => snapTo(0)}
               accessibilityRole="button"
               accessibilityLabel="Развернуть панель с деталями поездки"
             >
               {collapsedSummary}
             </Pressable>
-          ) : null}
+          </Animated.View>
         </View>
-        <View style={styles.sheetScrollWrap}>
+        <Animated.View
+          style={[styles.sheetScrollWrap, { opacity: contentOpacity }]}
+          pointerEvents={sheetState === 'expanded' ? 'auto' : 'none'}
+        >
           <ScrollView
             style={styles.sheetScroll}
             contentContainerStyle={[
               styles.sheetScrollContent,
               { paddingBottom: 12 },
             ]}
-            scrollEnabled={!isCollapsed}
+            scrollEnabled={sheetState === 'expanded'}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator
           >
             {children}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Animated.View>
   );
@@ -166,11 +216,14 @@ const styles = StyleSheet.create({
   },
   dragZone: {
     flexShrink: 0,
+    position: 'relative',
+    minHeight: HANDLE_AREA_HEIGHT,
+    zIndex: 1,
   },
   handleHit: {
-    paddingTop: 10,
-    paddingBottom: 12,
-    minHeight: 44,
+    paddingTop: 6,
+    paddingBottom: 6,
+    minHeight: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -179,6 +232,13 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: '#cfd8dc',
+  },
+  collapsedRowWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    overflow: 'hidden',
+    zIndex: 2,
   },
   collapsedRow: {
     paddingHorizontal: 16,
@@ -190,7 +250,7 @@ const styles = StyleSheet.create({
   },
   sheetScrollContent: {
     flexGrow: 1,
-    paddingTop: 4,
+    paddingTop: 0,
     paddingHorizontal: 16,
   },
 });
