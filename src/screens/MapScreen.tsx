@@ -52,6 +52,8 @@ export function MapScreen() {
     getStartTime,
     getCurrentPosition,
     getLastFinishedTrackingMode,
+    gpsAccuracyMeters,
+    gpsQualityZone,
   } = useTracking();
 
   const { saveRide } = useRides();
@@ -420,7 +422,13 @@ export function MapScreen() {
       <View style={[styles.buttonContainer, { bottom: 24 + insets.bottom }]}>
         {__DEV__ && (
           <View style={styles.imuPanel}>
-            <Text style={styles.imuTitle}>IMU debug</Text>
+            <Text style={styles.imuTitle}>GPS</Text>
+            <Text style={styles.imuText}>
+              accuracy (m):{' '}
+              {gpsAccuracyMeters != null ? gpsAccuracyMeters.toFixed(1) : '—'}
+            </Text>
+            <Text style={styles.imuText}>zone: {gpsQualityZone}</Text>
+            <Text style={[styles.imuTitle, styles.imuSensorSpacer]}>IMU debug</Text>
             <Text style={styles.imuText}>acc status: {imuStatusLabel}</Text>
             <Text style={styles.imuText}>acc samples: {imuSampleCount}</Text>
             <Text style={styles.imuText}>acc last: {imuLastSampleTimeText}</Text>

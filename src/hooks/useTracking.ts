@@ -13,6 +13,7 @@ import {
   type ImuDrState,
 } from '../utils/imuDeadReckoning';
 import { LOCATION_TASK_NAME, ACTIVE_RIDE_KEY } from '../tasks/locationTask';
+import { useGpsAccuracy } from './useGpsAccuracy';
 
 const IMU_TRACKING_INTERVAL_MS = 100;
 
@@ -24,7 +25,23 @@ const GPS_OPTIONS = {
   timeInterval: 5000,
 };
 
+function locationToCoordinate(location: Location.LocationObject): Coordinate {
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+    timestamp: location.timestamp,
+  };
+}
+
 export function useTracking() {
+  const {
+    gpsAccuracyMeters,
+    gpsQualityZone,
+    applyLocation: applyGpsLocation,
+    seedFromStoredAccuracy: seedGpsFromStoredAccuracy,
+    reset: resetGpsAccuracy,
+  } = useGpsAccuracy();
+
   const [state, setState] = React.useState<TrackingState>('idle');
   const [coordinates, setCoordinates] = React.useState<Coordinate[]>([]);
   const [distanceKm, setDistanceKm] = React.useState(0);
@@ -49,7 +66,11 @@ export function useTracking() {
     const raw = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
     if (!raw) return null;
     try {
-      const parsed = JSON.parse(raw) as { coordinates?: Coordinate[]; startTime?: number };
+      const parsed = JSON.parse(raw) as {
+        coordinates?: Coordinate[];
+        startTime?: number;
+        lastGpsAccuracyMeters?: number | null;
+      };
       if (
         typeof parsed.startTime !== 'number' ||
         !Array.isArray(parsed.coordinates) ||
@@ -57,7 +78,11 @@ export function useTracking() {
       ) {
         return null;
       }
-      return parsed as { coordinates: Coordinate[]; startTime: number };
+      return parsed as {
+        coordinates: Coordinate[];
+        startTime: number;
+        lastGpsAccuracyMeters?: number | null;
+      };
     } catch {
       return null;
     }
@@ -72,6 +97,7 @@ export function useTracking() {
         locationSubscriptionRef.current = await Location.watchPositionAsync(
           GPS_OPTIONS,
           (location) => {
+            applyGpsLocation(location);
             const newCoord: Coordinate = {
               latitude: location.coords.latitude,
               longitude: location.coords.longitude,
@@ -84,7 +110,7 @@ export function useTracking() {
         console.error('watchPositionAsync failed after restore:', e);
       }
     })();
-  }, []);
+  }, [applyGpsLocation]);
 
   /** После убийства процесса / холодного старта: трек в AsyncStorage, UI — пустой, пока не подтянем. */
   const hydrateActiveRideIfNeeded = React.useCallback(async () => {
@@ -100,13 +126,14 @@ export function useTracking() {
       startTimeRef.current = active.startTime;
       setCoordinates(active.coordinates);
       setDurationSeconds(Math.max(0, Math.floor((Date.now() - active.startTime) / 1000)));
+      seedGpsFromStoredAccuracy(active.lastGpsAccuracyMeters);
       startDurationTimer();
       attachForegroundWatch();
       setState('tracking');
     } catch (e) {
       console.error('hydrateActiveRideIfNeeded failed:', e);
     }
-  }, [attachForegroundWatch, readActiveRideFromStorage]);
+  }, [attachForegroundWatch, readActiveRideFromStorage, seedGpsFromStoredAccuracy]);
 
   React.useEffect(() => {
     checkPermissions();
@@ -136,6 +163,7 @@ export function useTracking() {
       setCoordinates((prev) =>
         active.coordinates.length > prev.length ? active.coordinates : prev
       );
+      seedGpsFromStoredAccuracy(active.lastGpsAccuracyMeters);
     };
 
     const onChange = (next: AppStateStatus) => {
@@ -148,7 +176,7 @@ export function useTracking() {
 
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [state, isSimulating, isImuTracking, readActiveRideFromStorage]);
+  }, [state, isSimulating, isImuTracking, readActiveRideFromStorage, seedGpsFromStoredAccuracy]);
 
   const checkPermissions = async () => {
     const { status } = await Location.getForegroundPermissionsAsync();
@@ -171,32 +199,28 @@ export function useTracking() {
     return true;
   };
 
-  const getCurrentPosition = async (): Promise<Coordinate | null> => {
-    const toCoord = (location: Location.LocationObject): Coordinate => ({
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-      timestamp: location.timestamp,
-    });
-
+  const fetchLocationObject = React.useCallback(async (): Promise<Location.LocationObject | null> => {
     try {
-      const location = await Location.getCurrentPositionAsync({
+      return await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      return toCoord(location);
     } catch (error) {
       console.warn('getCurrentPositionAsync failed, trying last known:', error);
       try {
         const last = await Location.getLastKnownPositionAsync({
           maxAge: 120_000,
         });
-        if (last) {
-          return toCoord(last);
-        }
+        return last;
       } catch (e) {
         console.error('Failed to get last known position:', e);
+        return null;
       }
-      return null;
     }
+  }, []);
+
+  const getCurrentPosition = async (): Promise<Coordinate | null> => {
+    const location = await fetchLocationObject();
+    return location ? locationToCoordinate(location) : null;
   };
 
   const startDurationTimer = () => {
@@ -254,8 +278,12 @@ export function useTracking() {
     const hasPermission = await requestPermissions();
     if (!hasPermission) return false;
 
-    const initialLocation = await getCurrentPosition();
-    if (!initialLocation) return false;
+    resetGpsAccuracy();
+    const initialLocObj = await fetchLocationObject();
+    if (!initialLocObj) return false;
+
+    applyGpsLocation(initialLocObj);
+    const initialLocation = locationToCoordinate(initialLocObj);
 
     startTimeRef.current = Date.now();
     const initialCoords = [initialLocation];
@@ -269,12 +297,14 @@ export function useTracking() {
       JSON.stringify({
         coordinates: initialCoords,
         startTime: startTimeRef.current,
+        lastGpsAccuracyMeters: initialLocObj.coords.accuracy ?? null,
       })
     );
 
     locationSubscriptionRef.current = await Location.watchPositionAsync(
       GPS_OPTIONS,
       (location) => {
+        applyGpsLocation(location);
         const newCoord: Coordinate = {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
@@ -301,7 +331,7 @@ export function useTracking() {
 
     setState('tracking');
     return true;
-  }, [state]);
+  }, [state, resetGpsAccuracy, fetchLocationObject, applyGpsLocation]);
 
   const startImuTracking = React.useCallback(async (): Promise<boolean> => {
     if (!__DEV__) {
@@ -326,6 +356,7 @@ export function useTracking() {
       return false;
     }
 
+    resetGpsAccuracy();
     const initialLocation = await getCurrentPosition();
     if (!initialLocation) {
       return false;
@@ -391,11 +422,12 @@ export function useTracking() {
     startDurationTimer();
     setState('tracking');
     return true;
-  }, [state]);
+  }, [state, resetGpsAccuracy]);
 
   const startSimulation = React.useCallback(async (): Promise<boolean> => {
     if (state !== 'idle') return false;
 
+    resetGpsAccuracy();
     const initialLocation =
       (await getCurrentPosition()) ??
       ({
@@ -449,7 +481,7 @@ export function useTracking() {
     }, 1000);
 
     return true;
-  }, [state]);
+  }, [state, resetGpsAccuracy]);
 
   const stop = React.useCallback(async () => {
     if (state !== 'tracking') return;
@@ -519,6 +551,8 @@ export function useTracking() {
     if (isTaskRunning) {
       await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
     }
+
+    resetGpsAccuracy();
   };
 
   const getStartTime = React.useCallback(() => startTimeRef.current, []);
@@ -534,6 +568,8 @@ export function useTracking() {
     distanceKm,
     durationSeconds,
     currentLocation,
+    gpsAccuracyMeters,
+    gpsQualityZone,
     permissionStatus,
     isSimulating,
     isImuTracking,

@@ -9,6 +9,8 @@ export const ACTIVE_RIDE_KEY = '@veloped/activeRide';
 interface ActiveRideData {
   coordinates: Coordinate[];
   startTime: number;
+  /** Последняя известная горизонтальная точность (м), из фоновых обновлений. */
+  lastGpsAccuracyMeters?: number | null;
 }
 
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
@@ -34,6 +36,8 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         }));
 
         activeRide.coordinates = [...activeRide.coordinates, ...newCoordinates];
+        const lastLoc = locations[locations.length - 1];
+        activeRide.lastGpsAccuracyMeters = lastLoc.coords.accuracy ?? null;
 
         await AsyncStorage.setItem(ACTIVE_RIDE_KEY, JSON.stringify(activeRide));
       } catch (e) {
