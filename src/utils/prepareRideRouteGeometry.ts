@@ -1,4 +1,14 @@
+import { Image } from 'react-native';
+import type { MarkerConfig } from 'expo-osm-sdk';
 import type { Coordinate } from '../types';
+
+/**
+ * Цветные PNG — expo-osm-sdk на Android красит маркер только при `icon.uri`;
+ * на iOS SF Symbols без `.alwaysTemplate` игнорируют `icon.color` (пин остаётся красным).
+ */
+const ROUTE_PIN_START_URI = Image.resolveAssetSource(require('../../assets/markers/pin-start.png')).uri;
+const ROUTE_PIN_END_URI = Image.resolveAssetSource(require('../../assets/markers/pin-end.png')).uri;
+const ROUTE_PIN_SINGLE_URI = Image.resolveAssetSource(require('../../assets/markers/pin-single.png')).uri;
 
 export type NormalizedCoord = {
   latitude: number;
@@ -7,16 +17,13 @@ export type NormalizedCoord = {
   originalIndex: number;
 };
 
-export type RouteMarker = {
-  id: string;
-  coordinate: { latitude: number; longitude: number };
-  title: string;
-};
+/** @deprecated use MarkerConfig from expo-osm-sdk */
+export type RouteMarker = MarkerConfig;
 
 export type PreparedRouteGeometry = {
   normalizedCoords: NormalizedCoord[];
   polylineCoords: { latitude: number; longitude: number }[];
-  routeMarkers: RouteMarker[];
+  routeMarkers: MarkerConfig[];
   routeBounds: {
     minLat: number;
     maxLat: number;
@@ -91,7 +98,7 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
     longitude: c.longitude,
   }));
 
-  let routeMarkers: RouteMarker[] = [];
+  let routeMarkers: MarkerConfig[] = [];
   if (normalizedCoords.length > 0) {
     const start = normalizedCoords[0];
     const end = normalizedCoords[normalizedCoords.length - 1];
@@ -101,6 +108,8 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
           id: 'single_point',
           coordinate: { latitude: start.latitude, longitude: start.longitude },
           title: 'Точка маршрута',
+          icon: { uri: ROUTE_PIN_SINGLE_URI, size: 120, anchor: { x: 0.5, y: 0.5 } },
+          zIndex: 2,
         },
       ];
     } else {
@@ -109,11 +118,15 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
           id: 'route_start',
           coordinate: { latitude: start.latitude, longitude: start.longitude },
           title: 'Старт',
+          icon: { uri: ROUTE_PIN_START_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+          zIndex: 1,
         },
         {
           id: 'route_end',
           coordinate: { latitude: end.latitude, longitude: end.longitude },
           title: 'Финиш',
+          icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+          zIndex: 2,
         },
       ];
     }
