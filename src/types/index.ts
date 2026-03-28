@@ -2,6 +2,8 @@ export interface Coordinate {
   latitude: number;
   longitude: number;
   timestamp: number;
+  /** Источник точки: GPS-фикс или IMU-экстраполяция. */
+  source?: 'gps' | 'imu';
 }
 
 export type RideSource = 'recorded' | 'imported' | 'imu_dev';

@@ -43,10 +43,9 @@ export function MapScreen() {
     currentLocation,
     permissionStatus,
     isSimulating,
-    isImuTracking,
+    isBridging,
     start,
     startSimulation,
-    startImuTracking,
     stop,
     reset,
     getStartTime,
@@ -269,23 +268,6 @@ export function MapScreen() {
     }
   };
 
-  const handleStartImuOnly = async () => {
-    if (!__DEV__) {
-      return;
-    }
-    setMapMarker(null);
-    startMarkerPendingRef.current = true;
-    const success = await startImuTracking();
-    if (!success) {
-      startMarkerPendingRef.current = false;
-      Alert.alert(
-        'IMU-трек недоступен',
-        'Нужны разрешение на геолокацию (одна точка старта) и датчики акселерометра и гироскопа. Режим только для разработки.',
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
   const handleStop = () => {
     stop();
   };
@@ -330,10 +312,13 @@ export function MapScreen() {
     ? new Date(magnetometerLastSampleAt).toLocaleTimeString()
     : '—';
 
-  const polylineCoords = coordinates.map((c) => ({
-    latitude: c.latitude,
-    longitude: c.longitude,
-  }));
+  // Разбиваем трек на сегменты GPS и IMU для разной окраски
+  const gpsCoords = coordinates
+    .filter((c) => c.source !== 'imu')
+    .map((c) => ({ latitude: c.latitude, longitude: c.longitude }));
+  const imuCoords = coordinates
+    .filter((c) => c.source === 'imu')
+    .map((c) => ({ latitude: c.latitude, longitude: c.longitude }));
 
   if (!initialRegion) {
     return (
@@ -365,18 +350,28 @@ export function MapScreen() {
               ]
             : []
         }
-        polylines={
-          polylineCoords.length > 1
+        polylines={[
+          ...(gpsCoords.length > 1
             ? [
                 {
-                  id: 'route',
-                  coordinates: polylineCoords,
+                  id: 'route-gps',
+                  coordinates: gpsCoords,
                   strokeColor: '#4CAF50',
                   strokeWidth: 4,
                 },
               ]
-            : []
-        }
+            : []),
+          ...(imuCoords.length > 1
+            ? [
+                {
+                  id: 'route-imu',
+                  coordinates: imuCoords,
+                  strokeColor: '#9E9E9E',
+                  strokeWidth: 3,
+                },
+              ]
+            : []),
+        ]}
       />
 
       <View style={styles.overlay}>
@@ -386,6 +381,14 @@ export function MapScreen() {
           topInset={insets.top}
         />
       </View>
+
+      {/* Индикатор IMU-моста */}
+      {isBridging && (
+        <View style={styles.bridgeBadge}>
+          <Ionicons name="navigate-circle-outline" size={14} color="#fff" />
+          <Text style={styles.bridgeBadgeText}>IMU</Text>
+        </View>
+      )}
 
       <View
         style={[
@@ -428,6 +431,7 @@ export function MapScreen() {
               {gpsAccuracyMeters != null ? gpsAccuracyMeters.toFixed(1) : '—'}
             </Text>
             <Text style={styles.imuText}>zone: {gpsQualityZone}</Text>
+            <Text style={styles.imuText}>bridge: {isBridging ? 'ON' : 'off'}</Text>
             <Text style={[styles.imuTitle, styles.imuSensorSpacer]}>IMU debug</Text>
             <Text style={styles.imuText}>acc status: {imuStatusLabel}</Text>
             <Text style={styles.imuText}>acc samples: {imuSampleCount}</Text>
@@ -465,20 +469,6 @@ export function MapScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-        )}
-        {__DEV__ && (
-          <TouchableOpacity
-            style={[
-              styles.imuTrackButton,
-              (state !== 'idle' || permissionStatus === 'denied') && styles.disabled,
-            ]}
-            onPress={handleStartImuOnly}
-            disabled={state !== 'idle' || permissionStatus === 'denied'}
-          >
-            <Text style={styles.demoButtonText}>
-              {isImuTracking ? 'IMU-трек…' : 'Запись только по IMU'}
-            </Text>
-          </TouchableOpacity>
         )}
         {__DEV__ && (
           <TouchableOpacity
@@ -548,15 +538,24 @@ const styles = StyleSheet.create({
   locateFabDisabled: {
     opacity: 0.45,
   },
-  imuTrackButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 24,
-    backgroundColor: '#00838F',
-    marginBottom: 12,
-    minWidth: 240,
-    alignItems: 'center',
+  bridgeBadge: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FF6F00',
+    paddingVertical: 4,
+    zIndex: 10,
+  },
+  bridgeBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   demoButton: {
     paddingVertical: 12,

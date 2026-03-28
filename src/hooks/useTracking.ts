@@ -7,15 +7,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Coordinate, TrackingState } from '../types';
 import { calculateTotalDistance } from '../utils/haversine';
 import {
-  createImuDrState,
-  imuDeadReckoningStep,
-  imuStateToCoordinate,
-  type ImuDrState,
-} from '../utils/imuDeadReckoning';
+  createBridgeState,
+  bridgeStep,
+  bridgeStateToCoordinate,
+  type BridgeState,
+} from '../utils/gpsBridge';
 import { LOCATION_TASK_NAME, ACTIVE_RIDE_KEY } from '../tasks/locationTask';
-import { useGpsAccuracy } from './useGpsAccuracy';
+import { useGpsAccuracy, type GpsQualityZone } from './useGpsAccuracy';
+import { reduceGpsQualityZone, DEFAULT_GPS_ACCURACY_HYSTERESIS } from '../utils/gpsAccuracy';
 
-const IMU_TRACKING_INTERVAL_MS = 100;
+const BRIDGE_SENSOR_INTERVAL_MS = 100;
+
+/** Размер кольцевого буфера надёжных GPS-точек. */
+const RELIABLE_BUFFER_SIZE = 5;
 
 export type FinishedTrackingMode = 'gps' | 'imu' | 'sim';
 
@@ -30,6 +34,7 @@ function locationToCoordinate(location: Location.LocationObject): Coordinate {
     latitude: location.coords.latitude,
     longitude: location.coords.longitude,
     timestamp: location.timestamp,
+    source: 'gps',
   };
 }
 
@@ -49,18 +54,128 @@ export function useTracking() {
   const [currentLocation, setCurrentLocation] = React.useState<Coordinate | null>(null);
   const [permissionStatus, setPermissionStatus] = React.useState<'granted' | 'denied' | 'undetermined'>('undetermined');
   const [isSimulating, setIsSimulating] = React.useState(false);
-  const [isImuTracking, setIsImuTracking] = React.useState(false);
+  const [isBridging, setIsBridging] = React.useState(false);
 
   const startTimeRef = React.useRef<number | null>(null);
   const timerRef = React.useRef<NodeJS.Timeout | null>(null);
   const locationSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
   const simulationTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
-  const imuAccSubscriptionRef = React.useRef<{ remove: () => void } | null>(null);
-  const imuGyroSubscriptionRef = React.useRef<{ remove: () => void } | null>(null);
-  const imuDrStateRef = React.useRef<ImuDrState | null>(null);
-  const gyroLastRef = React.useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
   const lastFinishedTrackingModeRef = React.useRef<FinishedTrackingMode | null>(null);
+
+  // --- Hybrid bridge refs ---
+  /** Кольцевой буфер последних reliable GPS-точек для инициализации моста. */
+  const reliableBufferRef = React.useRef<Coordinate[]>([]);
+  /** Текущее состояние IMU-моста. null = мост не активен. */
+  const bridgeStateRef = React.useRef<BridgeState | null>(null);
+  /** Флаг активности моста (ref-зеркало isBridging для доступа внутри callbacks). */
+  const isBridgingRef = React.useRef(false);
+  /**
+   * Синхронное зеркало текущей зоны -- обновляется сразу при вычислении зоны в handleGpsLocation,
+   * не зависит от цикла рендера React (в отличие от useEffect-синхронизации).
+   */
+  const gpsQualityZoneRef = React.useRef<GpsQualityZone>('unknown');
+  /** Последнее значение гироскопа (Z-ось), обновляется из gyro listener. */
+  const bridgeGyroZRef = React.useRef(0);
+  /** Subscriptions для сенсоров IMU-моста. */
+  const bridgeAccSubRef = React.useRef<{ remove: () => void } | null>(null);
+  const bridgeGyroSubRef = React.useRef<{ remove: () => void } | null>(null);
+
+  // --- Bridge helpers ---
+
+  const pushToReliableBuffer = (coord: Coordinate) => {
+    reliableBufferRef.current = [
+      ...reliableBufferRef.current.slice(-(RELIABLE_BUFFER_SIZE - 1)),
+      coord,
+    ];
+  };
+
+  const stopBridge = React.useCallback(() => {
+    if (bridgeAccSubRef.current) {
+      bridgeAccSubRef.current.remove();
+      bridgeAccSubRef.current = null;
+    }
+    if (bridgeGyroSubRef.current) {
+      bridgeGyroSubRef.current.remove();
+      bridgeGyroSubRef.current = null;
+    }
+    bridgeStateRef.current = null;
+    bridgeGyroZRef.current = 0;
+    isBridgingRef.current = false;
+    setIsBridging(false);
+  }, []);
+
+  const startBridge = React.useCallback(() => {
+    const buffer = reliableBufferRef.current;
+    if (buffer.length === 0) {
+      return;
+    }
+
+    bridgeStateRef.current = createBridgeState(buffer);
+    isBridgingRef.current = true;
+    setIsBridging(true);
+
+    Gyroscope.setUpdateInterval(BRIDGE_SENSOR_INTERVAL_MS);
+    Accelerometer.setUpdateInterval(BRIDGE_SENSOR_INTERVAL_MS);
+
+    bridgeGyroSubRef.current = Gyroscope.addListener((g) => {
+      bridgeGyroZRef.current = g.z;
+    });
+
+    bridgeAccSubRef.current = Accelerometer.addListener((a) => {
+      const prev = bridgeStateRef.current;
+      if (!prev) return;
+
+      const ts = a.timestamp != null ? Math.round(a.timestamp * 1000) : Date.now();
+      const accelMagnitude = Math.hypot(a.x, a.y, a.z) * 9.80665;
+      const next = bridgeStep(prev, bridgeGyroZRef.current, accelMagnitude, ts);
+      bridgeStateRef.current = next;
+
+      const coord = bridgeStateToCoordinate(next, ts);
+      setCoordinates((prevCoords) => [...prevCoords, coord]);
+    });
+  }, []);
+
+  // --- GPS watch callback (гибридный) ---
+
+  const handleGpsLocation = React.useCallback(
+    (location: Location.LocationObject) => {
+      // Обновляем accuracy state (для UI)
+      applyGpsLocation(location);
+
+      // Вычисляем зону синхронно -- не из React state (который применится позже),
+      // а непосредственно из accuracy, используя тот же алгоритм что и useGpsAccuracy.
+      // Это исключает race condition при старте записи.
+      const acc = location.coords.accuracy;
+      const speedMs = location.coords.speed ?? null;
+      const prevZone = gpsQualityZoneRef.current;
+      const newZone = reduceGpsQualityZone(prevZone, acc, DEFAULT_GPS_ACCURACY_HYSTERESIS, speedMs);
+      gpsQualityZoneRef.current = newZone;
+
+      const coord = locationToCoordinate(location);
+
+      if (newZone === 'reliable') {
+        pushToReliableBuffer(coord);
+        if (isBridgingRef.current) {
+          stopBridge();
+        }
+        setCoordinates((prev) => [...prev, coord]);
+      } else if (newZone === 'uncertain') {
+        if (!isBridgingRef.current) {
+          startBridge();
+        }
+        // Ненадёжные GPS-точки в трек не добавляем; мост генерирует точки сам
+      }
+      // zone === 'unknown' -- начало записи, нет оценки качества; добавляем в трек,
+      // но НЕ в reliable-буфер -- у нас нет доверия к этой точке как к якорю для IMU.
+      else {
+        setCoordinates((prev) => [...prev, coord]);
+      }
+    },
+    [applyGpsLocation, startBridge, stopBridge]
+  );
+
+  // --- Storage ---
 
   const readActiveRideFromStorage = React.useCallback(async () => {
     const raw = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
@@ -96,21 +211,13 @@ export function useTracking() {
       try {
         locationSubscriptionRef.current = await Location.watchPositionAsync(
           GPS_OPTIONS,
-          (location) => {
-            applyGpsLocation(location);
-            const newCoord: Coordinate = {
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-              timestamp: location.timestamp,
-            };
-            setCoordinates((prev) => [...prev, newCoord]);
-          }
+          handleGpsLocation
         );
       } catch (e) {
         console.error('watchPositionAsync failed after restore:', e);
       }
     })();
-  }, [applyGpsLocation]);
+  }, [handleGpsLocation]);
 
   /** После убийства процесса / холодного старта: трек в AsyncStorage, UI — пустой, пока не подтянем. */
   const hydrateActiveRideIfNeeded = React.useCallback(async () => {
@@ -153,7 +260,7 @@ export function useTracking() {
   /** Пока приложение в фоне, точки копятся в AsyncStorage; в state остаётся старый срез — подтягиваем при возврате. */
   React.useEffect(() => {
     const syncCoordsFromStorage = async () => {
-      if (state !== 'tracking' || isSimulating || isImuTracking) {
+      if (state !== 'tracking' || isSimulating) {
         return;
       }
       const active = await readActiveRideFromStorage();
@@ -176,7 +283,7 @@ export function useTracking() {
 
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [state, isSimulating, isImuTracking, readActiveRideFromStorage, seedGpsFromStoredAccuracy]);
+  }, [state, isSimulating, readActiveRideFromStorage, seedGpsFromStoredAccuracy]);
 
   const checkPermissions = async () => {
     const { status } = await Location.getForegroundPermissionsAsync();
@@ -279,11 +386,27 @@ export function useTracking() {
     if (!hasPermission) return false;
 
     resetGpsAccuracy();
+    reliableBufferRef.current = [];
+    gpsQualityZoneRef.current = 'unknown';
     const initialLocObj = await fetchLocationObject();
     if (!initialLocObj) return false;
 
     applyGpsLocation(initialLocObj);
+    // Синхронно инициализируем ref зоны из начального фикса,
+    // чтобы handleGpsLocation видел актуальную зону сразу при первом вызове watchPositionAsync.
+    gpsQualityZoneRef.current = reduceGpsQualityZone(
+      'unknown',
+      initialLocObj.coords.accuracy,
+      DEFAULT_GPS_ACCURACY_HYSTERESIS,
+      initialLocObj.coords.speed ?? null
+    );
     const initialLocation = locationToCoordinate(initialLocObj);
+    // Кладём в reliable-буфер только если точка действительно надёжная.
+    // Unknown-точки не становятся якорем -- без них мост не запустится
+    // пока не появится хотя бы один надёжный GPS-фикс.
+    if (gpsQualityZoneRef.current === 'reliable') {
+      pushToReliableBuffer(initialLocation);
+    }
 
     startTimeRef.current = Date.now();
     const initialCoords = [initialLocation];
@@ -303,15 +426,7 @@ export function useTracking() {
 
     locationSubscriptionRef.current = await Location.watchPositionAsync(
       GPS_OPTIONS,
-      (location) => {
-        applyGpsLocation(location);
-        const newCoord: Coordinate = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          timestamp: location.timestamp,
-        };
-        setCoordinates((prev) => [...prev, newCoord]);
-      }
+      handleGpsLocation
     );
 
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
@@ -331,98 +446,7 @@ export function useTracking() {
 
     setState('tracking');
     return true;
-  }, [state, resetGpsAccuracy, fetchLocationObject, applyGpsLocation]);
-
-  const startImuTracking = React.useCallback(async (): Promise<boolean> => {
-    if (!__DEV__) {
-      return false;
-    }
-    if (state !== 'idle') {
-      return false;
-    }
-
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      setPermissionStatus('denied');
-      return false;
-    }
-    setPermissionStatus('granted');
-
-    const [accelerometerAvailable, gyroscopeAvailable] = await Promise.all([
-      Accelerometer.isAvailableAsync(),
-      Gyroscope.isAvailableAsync(),
-    ]);
-    if (!accelerometerAvailable || !gyroscopeAvailable) {
-      return false;
-    }
-
-    resetGpsAccuracy();
-    const initialLocation = await getCurrentPosition();
-    if (!initialLocation) {
-      return false;
-    }
-
-    imuDrStateRef.current = createImuDrState(initialLocation);
-    gyroLastRef.current = { x: 0, y: 0, z: 0 };
-
-    startTimeRef.current = Date.now();
-    const initialCoords = [initialLocation];
-    setCoordinates(initialCoords);
-    setCurrentLocation(initialLocation);
-    setDistanceKm(0);
-    setDurationSeconds(0);
-    setIsImuTracking(true);
-
-    await AsyncStorage.setItem(
-      ACTIVE_RIDE_KEY,
-      JSON.stringify({
-        coordinates: initialCoords,
-        startTime: startTimeRef.current,
-        mode: 'imu',
-      })
-    );
-
-    Accelerometer.setUpdateInterval(IMU_TRACKING_INTERVAL_MS);
-    Gyroscope.setUpdateInterval(IMU_TRACKING_INTERVAL_MS);
-
-    imuGyroSubscriptionRef.current = Gyroscope.addListener((g) => {
-      gyroLastRef.current = { x: g.x, y: g.y, z: g.z };
-    });
-
-    imuAccSubscriptionRef.current = Accelerometer.addListener((a) => {
-      const prevState = imuDrStateRef.current;
-      if (!prevState) {
-        return;
-      }
-      const ts =
-        a.timestamp != null ? Math.round(a.timestamp * 1000) : Date.now();
-      imuDrStateRef.current = imuDeadReckoningStep(
-        prevState,
-        { x: a.x, y: a.y, z: a.z },
-        gyroLastRef.current,
-        ts
-      );
-      const coord = imuStateToCoordinate(imuDrStateRef.current, ts);
-      setCoordinates((prev) => {
-        const next = [...prev, coord];
-        if (next.length % 10 === 0) {
-          void AsyncStorage.setItem(
-            ACTIVE_RIDE_KEY,
-            JSON.stringify({
-              coordinates: next,
-              startTime: startTimeRef.current,
-              mode: 'imu',
-            })
-          );
-        }
-        return next;
-      });
-    });
-
-    startDurationTimer();
-    setState('tracking');
-    return true;
-  }, [state, resetGpsAccuracy]);
+  }, [state, resetGpsAccuracy, fetchLocationObject, applyGpsLocation, handleGpsLocation]);
 
   const startSimulation = React.useCallback(async (): Promise<boolean> => {
     if (state !== 'idle') return false;
@@ -445,7 +469,6 @@ export function useTracking() {
     setCurrentLocation(initialLocation);
     setDistanceKm(0);
     setDurationSeconds(0);
-    setIsImuTracking(false);
     setIsSimulating(true);
     setState('tracking');
 
@@ -486,15 +509,10 @@ export function useTracking() {
   const stop = React.useCallback(async () => {
     if (state !== 'tracking') return;
 
-    lastFinishedTrackingModeRef.current = isImuTracking
-      ? 'imu'
-      : isSimulating
-        ? 'sim'
-        : 'gps';
+    lastFinishedTrackingModeRef.current = isSimulating ? 'sim' : isBridging ? 'imu' : 'gps';
 
     cleanup();
     setIsSimulating(false);
-    setIsImuTracking(false);
 
     const storedData = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
     if (storedData) {
@@ -505,7 +523,7 @@ export function useTracking() {
     }
 
     setState('finished');
-  }, [state, coordinates.length, isImuTracking, isSimulating]);
+  }, [state, coordinates.length, isSimulating, isBridging]);
 
   const reset = React.useCallback(async () => {
     cleanup();
@@ -514,10 +532,10 @@ export function useTracking() {
     setDurationSeconds(0);
     setCurrentLocation(null);
     setIsSimulating(false);
-    setIsImuTracking(false);
+    reliableBufferRef.current = [];
+    gpsQualityZoneRef.current = 'unknown';
     startTimeRef.current = null;
     lastFinishedTrackingModeRef.current = null;
-    imuDrStateRef.current = null;
     await AsyncStorage.removeItem(ACTIVE_RIDE_KEY);
     setState('idle');
   }, []);
@@ -538,14 +556,18 @@ export function useTracking() {
       simulationTimerRef.current = null;
     }
 
-    if (imuAccSubscriptionRef.current) {
-      imuAccSubscriptionRef.current.remove();
-      imuAccSubscriptionRef.current = null;
+    // Останавливаем IMU-мост если активен
+    if (bridgeAccSubRef.current) {
+      bridgeAccSubRef.current.remove();
+      bridgeAccSubRef.current = null;
     }
-    if (imuGyroSubscriptionRef.current) {
-      imuGyroSubscriptionRef.current.remove();
-      imuGyroSubscriptionRef.current = null;
+    if (bridgeGyroSubRef.current) {
+      bridgeGyroSubRef.current.remove();
+      bridgeGyroSubRef.current = null;
     }
+    bridgeStateRef.current = null;
+    isBridgingRef.current = false;
+    setIsBridging(false);
 
     const isTaskRunning = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
     if (isTaskRunning) {
@@ -572,10 +594,9 @@ export function useTracking() {
     gpsQualityZone,
     permissionStatus,
     isSimulating,
-    isImuTracking,
+    isBridging,
     start,
     startSimulation,
-    startImuTracking,
     stop,
     reset,
     getStartTime,
