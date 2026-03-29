@@ -167,6 +167,22 @@ afterEvaluate {
     }
 }
 
+// gradlew clean: иначе :react-native-async-storage:clean успевает снести codegen/jni, а
+// externalNativeBuildClean* снова запускает CMake и падает на add_subdirectory (New Arch).
+afterEvaluate {
+    def asyncCodegen = rootProject.tasks.findByPath(":react-native-async-storage_async-storage:generateCodegenArtifactsFromSchema")
+    def asyncClean = rootProject.tasks.findByPath(":react-native-async-storage_async-storage:clean")
+    tasks.matching { it.name.startsWith("externalNativeBuildClean") }.configureEach { nativeClean ->
+        if (asyncCodegen != null) {
+            nativeClean.dependsOn(asyncCodegen)
+        }
+    }
+    def appClean = tasks.findByName("clean")
+    if (asyncClean != null && appClean != null) {
+        asyncClean.mustRunAfter(appClean)
+    }
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
