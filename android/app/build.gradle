@@ -153,8 +153,11 @@ android {
 }
 
 // Явная зависимость CMake от codegen (страховка, если CLI снова включит configure-on-demand).
+// Включаем и buildCMake*: иначе при release CMake стартует без codegen/jni у async-storage.
 afterEvaluate {
-    def cmakeTasks = tasks.findAll { it.name.startsWith("configureCMake") }
+    def cmakeTasks = tasks.findAll {
+        it.name.startsWith("configureCMake") || it.name.startsWith("buildCMake")
+    }
     if (cmakeTasks.isEmpty()) return
     [
         ":react-native-async-storage_async-storage:generateCodegenArtifactsFromSchema",

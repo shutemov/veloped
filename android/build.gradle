@@ -22,3 +22,20 @@ allprojects {
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
+
+// New Arch: Java в async-storage ссылается на сгенерированный NativeAsyncStorageModuleSpec;
+// subprojects { afterEvaluate } ломается, если подпроект уже evaluated — регистрируем до оценки.
+gradle.beforeProject { proj ->
+    if (proj.name != "react-native-async-storage_async-storage") {
+        return
+    }
+    proj.afterEvaluate {
+        def codegen = proj.tasks.findByName("generateCodegenArtifactsFromSchema")
+        if (codegen == null) {
+            return
+        }
+        proj.tasks.withType(JavaCompile).configureEach { jc ->
+            jc.dependsOn(codegen)
+        }
+    }
+}
