@@ -13,6 +13,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useHistoryScreenContext } from '../../context/HistoryScreenContext';
 import { RideCard } from '../../components/RideCard';
 import { ImportedRideCard } from '../../components/ImportedRideCard';
@@ -80,7 +81,10 @@ function MyRidesPage({
           <RideCard
             ride={item}
             onPress={() => navigateToRideDetail(item)}
-            onLongPress={() => setRideActionsTarget(item)}
+            onLongPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+              setRideActionsTarget(item);
+            }}
           />
         )}
         ListEmptyComponent={renderEmpty}
