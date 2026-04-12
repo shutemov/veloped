@@ -118,7 +118,7 @@ function HistoryScreenShell() {
 }
 
 export function HistoryScreen() {
-  const { rides, loading, refresh, importRides } = useRides();
+  const { rides, loading, refresh, importRides, deleteRide } = useRides();
   const navigation = useNavigation<NavigationProp>();
 
   const navigateToRideDetail = React.useCallback(
@@ -134,6 +134,7 @@ export function HistoryScreen() {
       loading={loading}
       refresh={refresh}
       navigateToRideDetail={navigateToRideDetail}
+      deleteRide={deleteRide}
       importRides={importRides}
     >
       <HistoryScreenShell />

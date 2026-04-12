@@ -6,11 +6,18 @@ import { formatDate, formatTime, formatDistance, formatDuration } from '../utils
 interface RideCardProps {
   ride: Ride;
   onPress: () => void;
+  /** Долгое нажатие — например, меню действий в списке истории. */
+  onLongPress?: () => void;
 }
 
-export function RideCard({ ride, onPress }: RideCardProps) {
+export function RideCard({ ride, onPress, onLongPress }: RideCardProps) {
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={450}
+    >
       <View style={styles.header}>
         <Text style={styles.date}>{formatDate(ride.startTime)}</Text>
         <Text style={styles.time}>{formatTime(ride.startTime)}</Text>

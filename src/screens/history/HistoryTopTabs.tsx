@@ -7,6 +7,8 @@ import {
   RefreshControl,
   ScrollView,
   Pressable,
+  Modal,
+  Alert,
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -16,6 +18,7 @@ import { RideCard } from '../../components/RideCard';
 import { ImportedRideCard } from '../../components/ImportedRideCard';
 import { HistoryRidesSortChips } from '../../components/HistoryRidesSortChips';
 import { sortRidesForList, type RideListSortMode } from '../../utils/sortRidesForList';
+import { formatDate, formatTime } from '../../utils/formatters';
 import type { Ride } from '../../types';
 
 function MyRidesPage({
@@ -27,7 +30,37 @@ function MyRidesPage({
   rides: Ride[];
   navigateToRideDetail: (ride: Ride) => void;
 }) {
-  const { loading, refresh } = useHistoryScreenContext();
+  const { loading, refresh, deleteRide } = useHistoryScreenContext();
+  const [rideActionsTarget, setRideActionsTarget] = React.useState<Ride | null>(null);
+
+  const closeRideActions = React.useCallback(() => {
+    setRideActionsTarget(null);
+  }, []);
+
+  const openRideDetailFromMenu = React.useCallback(
+    (ride: Ride) => {
+      closeRideActions();
+      navigateToRideDetail(ride);
+    },
+    [closeRideActions, navigateToRideDetail]
+  );
+
+  const confirmDeleteRideFromMenu = React.useCallback(
+    (ride: Ride) => {
+      closeRideActions();
+      Alert.alert('Удалить поездку?', 'Это действие нельзя отменить.', [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Удалить',
+          style: 'destructive',
+          onPress: () => {
+            void deleteRide(ride.id);
+          },
+        },
+      ]);
+    },
+    [closeRideActions, deleteRide]
+  );
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
@@ -44,7 +77,11 @@ function MyRidesPage({
         data={rides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <RideCard ride={item} onPress={() => navigateToRideDetail(item)} />
+          <RideCard
+            ride={item}
+            onPress={() => navigateToRideDetail(item)}
+            onLongPress={() => setRideActionsTarget(item)}
+          />
         )}
         ListEmptyComponent={renderEmpty}
         contentContainerStyle={rides.length === 0 ? styles.emptyList : styles.list}
@@ -53,6 +90,62 @@ function MyRidesPage({
         }
         nestedScrollEnabled
       />
+
+      <Modal
+        visible={rideActionsTarget != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeRideActions}
+      >
+        <View style={styles.rideActionsModalRoot}>
+          <Pressable
+            style={styles.rideActionsBackdrop}
+            onPress={closeRideActions}
+            accessibilityLabel="Закрыть"
+          />
+          {rideActionsTarget ? (
+            <View style={styles.rideActionsCard}>
+              <Text style={styles.rideActionsTitle} numberOfLines={2}>
+                {formatDate(rideActionsTarget.startTime)} · {formatTime(rideActionsTarget.startTime)}
+              </Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.rideActionsRow,
+                  pressed && styles.rideActionsRowPressed,
+                ]}
+                onPress={() => openRideDetailFromMenu(rideActionsTarget)}
+                accessibilityRole="button"
+                accessibilityLabel="Открыть поездку"
+              >
+                <Text style={styles.rideActionsRowText}>Открыть</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.rideActionsRow,
+                  pressed && styles.rideActionsRowPressed,
+                ]}
+                onPress={() => confirmDeleteRideFromMenu(rideActionsTarget)}
+                accessibilityRole="button"
+                accessibilityLabel="Удалить маршрут"
+              >
+                <Text style={styles.rideActionsRowDanger}>Удалить маршрут</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.rideActionsRow,
+                  styles.rideActionsRowLast,
+                  pressed && styles.rideActionsRowPressed,
+                ]}
+                onPress={closeRideActions}
+                accessibilityRole="button"
+                accessibilityLabel="Отмена"
+              >
+                <Text style={styles.rideActionsRowMuted}>Отмена</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -312,6 +405,67 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+  rideActionsModalRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  rideActionsBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  rideActionsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    maxWidth: 400,
+    alignSelf: 'center',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  rideActionsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e8e8e8',
+  },
+  rideActionsRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  rideActionsRowLast: {
+    borderBottomWidth: 0,
+  },
+  rideActionsRowPressed: {
+    backgroundColor: '#f5f5f5',
+  },
+  rideActionsRowText: {
+    fontSize: 17,
+    color: '#1976D2',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  rideActionsRowDanger: {
+    fontSize: 17,
+    color: '#c62828',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  rideActionsRowMuted: {
+    fontSize: 16,
     color: '#666',
     textAlign: 'center',
   },

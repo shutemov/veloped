@@ -13,6 +13,7 @@ type HistoryScreenContextValue = {
   activeTab: HistoryActiveTab;
   setActiveTab: (tab: HistoryActiveTab) => void;
   navigateToRideDetail: (ride: Ride) => void;
+  deleteRide: (id: string) => Promise<void>;
   importRides: (rides: Ride[]) => Promise<void>;
   registerSwitchToImportedTab: (fn: (() => void) | null) => void;
   switchToImportedTab: () => void;
@@ -26,6 +27,7 @@ type ProviderProps = {
   loading: boolean;
   refresh: () => void;
   navigateToRideDetail: (ride: Ride) => void;
+  deleteRide: (id: string) => Promise<void>;
   importRides: (rides: Ride[]) => Promise<void>;
 };
 
@@ -35,6 +37,7 @@ export function HistoryScreenProvider({
   loading,
   refresh,
   navigateToRideDetail,
+  deleteRide,
   importRides,
 }: ProviderProps) {
   const [activeTab, setActiveTabState] = React.useState<HistoryActiveTab>('my');
@@ -67,6 +70,7 @@ export function HistoryScreenProvider({
     activeTab,
     setActiveTab,
     navigateToRideDetail,
+    deleteRide,
     importRides,
     registerSwitchToImportedTab,
     switchToImportedTab,
