@@ -5,6 +5,7 @@ import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActiveRideData, Coordinate, TrackingState } from '../types';
 import { calculateTotalDistance } from '../utils/haversine';
+import { buildDemoRouteWithPauses } from '../utils/demoRouteWithPauses';
 import { LOCATION_TASK_NAME, ACTIVE_RIDE_KEY } from '../tasks/locationTask';
 import { useGpsAccuracy } from './useGpsAccuracy';
 
@@ -583,6 +584,73 @@ export function useTracking() {
     resetGpsAccuracy();
   }, [detachForegroundWatch, stopBackgroundUpdates, resetGpsAccuracy]);
 
+  /** Демо для dev: тот же таймер, но маршрут из трёх отрезков с границами как после паузы. */
+  const startSimulationWithPauses = React.useCallback(async (): Promise<boolean> => {
+    if (state !== 'idle') return false;
+
+    resetGpsAccuracy();
+    const initialLocation =
+      (await getCurrentPosition()) ??
+      ({
+        latitude: 55.751244,
+        longitude: 37.618423,
+        timestamp: Date.now(),
+      } as Coordinate);
+
+    const { coordinates: fullRoute, segmentStartIndices: demoSegmentStarts } =
+      buildDemoRouteWithPauses(initialLocation);
+    let routeIndex = 0;
+    const simulatedCoords: Coordinate[] = [];
+
+    startTimeRef.current = Date.now();
+    totalPausedMsRef.current = 0;
+    pauseStartedAtRef.current = null;
+    setSegmentStartIndices(demoSegmentStarts);
+    setCoordinates([]);
+    setCurrentLocation(initialLocation);
+    setDistanceKm(0);
+    setDurationSeconds(0);
+    setIsSimulating(true);
+    setState('tracking');
+
+    startDurationTimer();
+
+    simulationTimerRef.current = setInterval(() => {
+      if (routeIndex >= fullRoute.length) {
+        void (async () => {
+          await cleanup();
+          setIsSimulating(false);
+          setState('finished');
+        })();
+        return;
+      }
+
+      const nextPoint = {
+        ...fullRoute[routeIndex],
+        timestamp: Date.now(),
+      };
+      routeIndex += 1;
+      simulatedCoords.push(nextPoint);
+
+      setCoordinates([...simulatedCoords]);
+      setCurrentLocation(nextPoint);
+
+      void AsyncStorage.setItem(
+        ACTIVE_RIDE_KEY,
+        JSON.stringify({
+          coordinates: simulatedCoords,
+          startTime: startTimeRef.current,
+          isPaused: false,
+          totalPausedMs: 0,
+          pauseStartedAt: null,
+          segmentStartIndices: demoSegmentStarts,
+        })
+      );
+    }, 1000);
+
+    return true;
+  }, [state, resetGpsAccuracy, cleanup, startDurationTimer]);
+
   const getStartTime = React.useCallback(() => startTimeRef.current, []);
 
   return {
@@ -597,6 +665,7 @@ export function useTracking() {
     isSimulating,
     start,
     startSimulation,
+    startSimulationWithPauses,
     pause,
     resume,
     stop,

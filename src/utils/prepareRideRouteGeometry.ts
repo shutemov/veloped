@@ -43,6 +43,49 @@ export type PreparedRouteGeometry = {
 /** Маршруты с большим числом точек обрабатываем асинхронно, чтобы не блокировать первый кадр экрана. */
 export const RIDE_ROUTE_HEAVY_POINT_THRESHOLD = 500;
 
+/** ~1 м по широте — достаточно, чтобы сличать дубликаты GPS на границе паузы. */
+function coordsAlmostEqual(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+  eps = 1e-5
+): boolean {
+  return Math.abs(a.latitude - b.latitude) < eps && Math.abs(a.longitude - b.longitude) < eps;
+}
+
+/**
+ * На границе отрезков «финиш N» и «старт N+1» часто в одной точке; два маркера совпадают
+ * и верхний по z-index скрывает нижний — объединяем в один маркер.
+ */
+function mergeCoincidentSegmentBoundaryMarkers(markers: MarkerConfig[]): MarkerConfig[] {
+  const out: MarkerConfig[] = [];
+  for (let i = 0; i < markers.length; i++) {
+    const cur = markers[i]!;
+    const next = markers[i + 1];
+    const endMatch = /^route_seg_(\d+)_end$/.exec(cur.id);
+    const startMatch = next && /^route_seg_(\d+)_start$/.exec(next.id);
+    if (
+      endMatch &&
+      startMatch &&
+      Number(endMatch[1]) + 1 === Number(startMatch[1]) &&
+      coordsAlmostEqual(cur.coordinate, next.coordinate)
+    ) {
+      const n = Number(endMatch[1]);
+      const m = Number(startMatch[1]);
+      out.push({
+        id: `route_seg_boundary_${n}_${m}`,
+        coordinate: cur.coordinate,
+        title: `Финиш ${n} · Старт ${m}`,
+        icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+        zIndex: Math.max(cur.zIndex ?? 0, next.zIndex ?? 0),
+      });
+      i += 1;
+      continue;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 function clampLatitude(latitude: number): number {
   return Math.max(Math.min(latitude, 85.05112878), -85.05112878);
 }
@@ -253,5 +296,5 @@ export function buildSegmentBoundaryMarkers(
       zIndex: 101 + n * 2,
     });
   });
-  return markers;
+  return mergeCoincidentSegmentBoundaryMarkers(markers);
 }

@@ -45,6 +45,7 @@ export function MapScreen() {
     isSimulating,
     start,
     startSimulation,
+    startSimulationWithPauses,
     pause,
     resume,
     stop,
@@ -252,6 +253,16 @@ export function MapScreen() {
     }
   };
 
+  const handleStartDemoWithPauses = async () => {
+    setMapMarker(null);
+    startMarkerPendingRef.current = true;
+    const success = await startSimulationWithPauses();
+    if (!success) {
+      startMarkerPendingRef.current = false;
+      Alert.alert('Демо недоступно', 'Остановите текущий трек или сбросьте запись.');
+    }
+  };
+
   const handleStop = () => {
     if (state === 'paused') {
       Alert.alert(
@@ -375,18 +386,32 @@ export function MapScreen() {
           </View>
         )}
         {__DEV__ && (
-          <TouchableOpacity
-            style={[
-              styles.demoButton,
-              (state !== 'idle' || permissionStatus === 'denied') && styles.disabled,
-            ]}
-            onPress={handleStartDemo}
-            disabled={state !== 'idle' || permissionStatus === 'denied'}
-          >
-            <Text style={styles.demoButtonText}>
-              {isSimulating ? 'Демо выполняется...' : 'Запустить демо-маршрут'}
-            </Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={[
+                styles.demoButton,
+                (state !== 'idle' || permissionStatus === 'denied') && styles.disabled,
+              ]}
+              onPress={handleStartDemo}
+              disabled={state !== 'idle' || permissionStatus === 'denied'}
+            >
+              <Text style={styles.demoButtonText}>
+                {isSimulating ? 'Демо выполняется…' : 'Демо-маршрут'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.demoButtonPauses,
+                (state !== 'idle' || permissionStatus === 'denied') && styles.disabled,
+              ]}
+              onPress={handleStartDemoWithPauses}
+              disabled={state !== 'idle' || permissionStatus === 'denied'}
+            >
+              <Text style={styles.demoButtonText}>
+                {isSimulating ? 'Демо выполняется…' : 'Демо: отрезки + паузы'}
+              </Text>
+            </TouchableOpacity>
+          </>
         )}
         <TrackingButton
           state={state}
@@ -450,8 +475,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 24,
     backgroundColor: '#6A5ACD',
+    marginBottom: 8,
+    minWidth: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  demoButtonPauses: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    backgroundColor: '#2E7D96',
     marginBottom: 12,
-    minWidth: 240,
+    minWidth: 260,
     alignItems: 'center',
     justifyContent: 'center',
   },
