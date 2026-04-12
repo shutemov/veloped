@@ -24,6 +24,7 @@ import { haversineDistance } from '../utils/haversine';
 import type { Coordinate } from '../types';
 import {
   prepareRideRouteGeometry,
+  buildSegmentBoundaryMarkers,
   calculateRouteFitZoom,
   RIDE_ROUTE_HEAVY_POINT_THRESHOLD,
   type PreparedRouteGeometry,
@@ -303,6 +304,17 @@ export function RideDetailScreen() {
     return [];
   }, [detailSegmentPolylines, polylineCoords]);
 
+  /** На маршруте с паузами маркеры по полному треку и границам отрезков, а не только по прореженной линии. */
+  const mapMarkers = React.useMemo(() => {
+    if (!ride) {
+      return [];
+    }
+    if (isOutlierFilterEnabled || !ride.segmentStartIndices?.length) {
+      return routeMarkers;
+    }
+    return buildSegmentBoundaryMarkers(ride.coordinates, ride.segmentStartIndices);
+  }, [ride, isOutlierFilterEnabled, routeMarkers]);
+
   const isHeavyRouteLoading =
     ride != null &&
     sampledCoordCount >= RIDE_ROUTE_HEAVY_POINT_THRESHOLD &&
@@ -479,7 +491,7 @@ export function RideDetailScreen() {
               }
               initialZoom={routeRegion ? routeZoom : 14}
               onMapReady={() => setIsMapReady(true)}
-              markers={isMapReady ? routeMarkers : []}
+              markers={isMapReady ? mapMarkers : []}
               polylines={isMapReady ? polylinesForDetailMap : []}
             />
             {polylinesForDetailMap.length === 0 && (

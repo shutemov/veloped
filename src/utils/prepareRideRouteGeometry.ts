@@ -1,6 +1,7 @@
 import { Image } from 'react-native';
 import type { MarkerConfig } from 'expo-osm-sdk';
 import type { Coordinate } from '../types';
+import { splitCoordinatesIntoSegments } from './rideSegments';
 
 /**
  * Цветные PNG — expo-osm-sdk на Android красит маркер только при `icon.uri`;
@@ -172,4 +173,85 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
     routeRegion,
     routeZoom,
   };
+}
+
+/**
+ * Маркеры начала/конца каждого отрезка (после паузы) по полным координатам поездки.
+ * Согласовано с {@link splitCoordinatesIntoSegments} и цветными полилиниями на деталях.
+ */
+export function buildSegmentBoundaryMarkers(
+  rideCoordinates: Coordinate[],
+  segmentStartIndices: number[] | undefined | null
+): MarkerConfig[] {
+  const segments = splitCoordinatesIntoSegments(rideCoordinates, segmentStartIndices);
+  if (segments.length === 0) {
+    return [];
+  }
+
+  if (segments.length === 1) {
+    const seg = segments[0]!;
+    if (seg.length === 0) return [];
+    const start = seg[0]!;
+    const end = seg[seg.length - 1]!;
+    if (seg.length === 1) {
+      return [
+        {
+          id: 'route_single',
+          coordinate: { latitude: start.latitude, longitude: start.longitude },
+          title: 'Точка маршрута',
+          icon: { uri: ROUTE_PIN_SINGLE_URI, size: 120, anchor: { x: 0.5, y: 0.5 } },
+          zIndex: 2,
+        },
+      ];
+    }
+    return [
+      {
+        id: 'route_start',
+        coordinate: { latitude: start.latitude, longitude: start.longitude },
+        title: 'Старт',
+        icon: { uri: ROUTE_PIN_START_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+        zIndex: 1,
+      },
+      {
+        id: 'route_end',
+        coordinate: { latitude: end.latitude, longitude: end.longitude },
+        title: 'Финиш',
+        icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+        zIndex: 2,
+      },
+    ];
+  }
+
+  const markers: MarkerConfig[] = [];
+  segments.forEach((seg, i) => {
+    const n = i + 1;
+    if (seg.length === 0) return;
+    const start = seg[0]!;
+    const end = seg[seg.length - 1]!;
+    if (seg.length === 1) {
+      markers.push({
+        id: `route_seg_${n}_point`,
+        coordinate: { latitude: start.latitude, longitude: start.longitude },
+        title: `Отрезок ${n}`,
+        icon: { uri: ROUTE_PIN_SINGLE_URI, size: 120, anchor: { x: 0.5, y: 0.5 } },
+        zIndex: 100 + n,
+      });
+      return;
+    }
+    markers.push({
+      id: `route_seg_${n}_start`,
+      coordinate: { latitude: start.latitude, longitude: start.longitude },
+      title: `Старт ${n}`,
+      icon: { uri: ROUTE_PIN_START_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+      zIndex: 100 + n * 2,
+    });
+    markers.push({
+      id: `route_seg_${n}_end`,
+      coordinate: { latitude: end.latitude, longitude: end.longitude },
+      title: `Финиш ${n}`,
+      icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+      zIndex: 101 + n * 2,
+    });
+  });
+  return markers;
 }
