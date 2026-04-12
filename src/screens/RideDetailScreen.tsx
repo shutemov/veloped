@@ -28,6 +28,7 @@ import {
   RIDE_ROUTE_HEAVY_POINT_THRESHOLD,
   type PreparedRouteGeometry,
 } from '../utils/prepareRideRouteGeometry';
+import { buildDetailSegmentPolylines } from '../utils/rideSegments';
 import { RideDetailInfoSheet } from '../components/RideDetailInfoSheet';
 
 type RideDetailParams = {
@@ -273,6 +274,35 @@ export function RideDetailScreen() {
       ? calculateRouteFitZoom(routeBounds, mapViewport, 24)
       : fallbackRouteZoom;
 
+  const detailSegmentPolylines = React.useMemo(() => {
+    if (!ride) return null;
+    if (isOutlierFilterEnabled) return null;
+    if (!ride.segmentStartIndices?.length) return null;
+    const segs = buildDetailSegmentPolylines(
+      ride.coordinates,
+      ride.segmentStartIndices,
+      detailStep
+    ).filter((p) => p.coordinates.length > 1);
+    return segs.length > 0 ? segs : null;
+  }, [ride, isOutlierFilterEnabled, detailStep]);
+
+  const polylinesForDetailMap = React.useMemo(() => {
+    if (detailSegmentPolylines && detailSegmentPolylines.length > 0) {
+      return detailSegmentPolylines;
+    }
+    if (polylineCoords.length > 1) {
+      return [
+        {
+          id: RIDE_POLYLINE_ID,
+          coordinates: polylineCoords,
+          strokeColor: '#4CAF50',
+          strokeWidth: 6,
+        },
+      ];
+    }
+    return [];
+  }, [detailSegmentPolylines, polylineCoords]);
+
   const isHeavyRouteLoading =
     ride != null &&
     sampledCoordCount >= RIDE_ROUTE_HEAVY_POINT_THRESHOLD &&
@@ -450,20 +480,9 @@ export function RideDetailScreen() {
               initialZoom={routeRegion ? routeZoom : 14}
               onMapReady={() => setIsMapReady(true)}
               markers={isMapReady ? routeMarkers : []}
-              polylines={
-                isMapReady && polylineCoords.length > 1
-                  ? [
-                      {
-                        id: RIDE_POLYLINE_ID,
-                        coordinates: polylineCoords,
-                        strokeColor: '#4CAF50',
-                        strokeWidth: 6,
-                      },
-                    ]
-                  : []
-              }
+              polylines={isMapReady ? polylinesForDetailMap : []}
             />
-            {polylineCoords.length < 2 && (
+            {polylinesForDetailMap.length === 0 && (
               <View style={styles.emptyRouteOverlay}>
                 <Text style={styles.emptyRouteText}>Для маршрута нужно минимум 2 точки GPS</Text>
               </View>

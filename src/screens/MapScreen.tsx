@@ -16,6 +16,7 @@ import { useRides } from '../hooks/useRides';
 import { StatsBar } from '../components/StatsBar';
 import { TrackingButton } from '../components/TrackingButton';
 import { calculateTotalDistance } from '../utils/haversine';
+import { buildMapPolylinesFromSegments } from '../utils/rideSegments';
 import { Coordinate, Ride } from '../types';
 
 type MapScreenMarker =
@@ -52,6 +53,7 @@ export function MapScreen() {
     getCurrentPosition,
     gpsAccuracyMeters,
     gpsQualityZone,
+    segmentStartIndices,
   } = useTracking();
 
   const { saveRide } = useRides();
@@ -175,6 +177,7 @@ export function MapScreen() {
         durationSeconds,
         distanceKm: calculateTotalDistance(coordinates),
         coordinates,
+        ...(segmentStartIndices.length > 0 ? { segmentStartIndices } : {}),
         source: 'recorded',
       };
 
@@ -190,7 +193,7 @@ export function MapScreen() {
     };
 
     void run();
-  }, [state, coordinates, getStartTime, saveRide, reset, durationSeconds]);
+  }, [state, coordinates, getStartTime, saveRide, reset, durationSeconds, segmentStartIndices]);
 
   const initializeLocation = async () => {
     const location = await getCurrentPosition();
@@ -269,6 +272,11 @@ export function MapScreen() {
     longitude: c.longitude,
   }));
 
+  const mapPolylines = React.useMemo(
+    () => buildMapPolylinesFromSegments(coordinates, segmentStartIndices),
+    [coordinates, segmentStartIndices]
+  );
+
   if (!initialRegion) {
     return (
       <View style={styles.loadingContainer}>
@@ -300,16 +308,18 @@ export function MapScreen() {
             : []
         }
         polylines={
-          routeCoords.length > 1
-            ? [
-                {
-                  id: 'route',
-                  coordinates: routeCoords,
-                  strokeColor: '#4CAF50',
-                  strokeWidth: 4,
-                },
-              ]
-            : []
+          mapPolylines.length > 0
+            ? mapPolylines
+            : routeCoords.length > 1
+              ? [
+                  {
+                    id: 'route',
+                    coordinates: routeCoords,
+                    strokeColor: '#4CAF50',
+                    strokeWidth: 4,
+                  },
+                ]
+              : []
         }
       />
 

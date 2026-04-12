@@ -18,6 +18,11 @@ export interface Ride {
   durationSeconds: number;
   distanceKm: number;
   coordinates: Coordinate[];
+  /**
+   * Индексы в coordinates, с которых начинается 2-й, 3-й, … отрезок после «Продолжить» (пауза).
+   * Первый отрезок всегда с индекса 0.
+   */
+  segmentStartIndices?: number[];
   /** По умолчанию считается записанной на устройстве (legacy без поля). */
   source?: RideSource;
   importedAt?: number;
@@ -39,6 +44,10 @@ export interface ActiveRideData {
   totalPausedMs?: number;
   /** Время начала текущей незакрытой паузы. */
   pauseStartedAt?: number | null;
+  /**
+   * Индексы начала 2-го, 3-го, … отрезка (после «Продолжить»). Синхронно с Ride.segmentStartIndices.
+   */
+  segmentStartIndices?: number[];
 }
 
 export type TrackingState = 'idle' | 'tracking' | 'paused' | 'finished';

@@ -48,10 +48,21 @@ export function useTracking() {
   const simulationTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
   const stateRef = React.useRef<TrackingState>('idle');
+  const coordinatesRef = React.useRef<Coordinate[]>([]);
+  const segmentStartIndicesRef = React.useRef<number[]>([]);
+  const [segmentStartIndices, setSegmentStartIndices] = React.useState<number[]>([]);
 
   React.useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  React.useEffect(() => {
+    coordinatesRef.current = coordinates;
+  }, [coordinates]);
+
+  React.useEffect(() => {
+    segmentStartIndicesRef.current = segmentStartIndices;
+  }, [segmentStartIndices]);
 
   const computeActiveMs = React.useCallback(() => {
     if (startTimeRef.current == null) return 0;
@@ -181,6 +192,9 @@ export function useTracking() {
           ? active.pauseStartedAt
           : null;
       setCoordinates(active.coordinates);
+      setSegmentStartIndices(
+        Array.isArray(active.segmentStartIndices) ? active.segmentStartIndices : []
+      );
       setDurationSeconds(computeActiveSeconds());
       seedGpsFromStoredAccuracy(active.lastGpsAccuracyMeters);
       startDurationTimer();
@@ -239,6 +253,9 @@ export function useTracking() {
       setCoordinates((prev) =>
         active.coordinates.length > prev.length ? active.coordinates : prev
       );
+      if (Array.isArray(active.segmentStartIndices)) {
+        setSegmentStartIndices(active.segmentStartIndices);
+      }
       seedGpsFromStoredAccuracy(active.lastGpsAccuracyMeters);
     };
 
@@ -359,6 +376,7 @@ export function useTracking() {
     setDistanceKm(0);
     setDurationSeconds(0);
 
+    setSegmentStartIndices([]);
     await AsyncStorage.setItem(
       ACTIVE_RIDE_KEY,
       JSON.stringify({
@@ -368,6 +386,7 @@ export function useTracking() {
         isPaused: false,
         totalPausedMs: 0,
         pauseStartedAt: null,
+        segmentStartIndices: [],
       })
     );
 
@@ -407,6 +426,7 @@ export function useTracking() {
     startTimeRef.current = Date.now();
     totalPausedMsRef.current = 0;
     pauseStartedAtRef.current = null;
+    setSegmentStartIndices([]);
     setCoordinates([]);
     setCurrentLocation(initialLocation);
     setDistanceKm(0);
@@ -444,6 +464,7 @@ export function useTracking() {
           isPaused: false,
           totalPausedMs: 0,
           pauseStartedAt: null,
+          segmentStartIndices: [],
         })
       );
     }, 1000);
@@ -483,10 +504,17 @@ export function useTracking() {
     setDurationSeconds(computeActiveSeconds());
     setState('tracking');
 
+    const nextSegmentStarts = [
+      ...segmentStartIndicesRef.current,
+      coordinatesRef.current.length,
+    ];
+    setSegmentStartIndices(nextSegmentStarts);
+
     await upsertActiveRideMeta({
       isPaused: false,
       totalPausedMs: totalPausedMsRef.current,
       pauseStartedAt: null,
+      segmentStartIndices: nextSegmentStarts,
     });
     await attachForegroundWatch();
     await startBackgroundUpdates();
@@ -511,8 +539,11 @@ export function useTracking() {
     const storedData = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
     if (storedData) {
       const parsed = JSON.parse(storedData) as ActiveRideData;
-      if (Array.isArray(parsed.coordinates) && parsed.coordinates.length > coordinates.length) {
+      if (Array.isArray(parsed.coordinates) && parsed.coordinates.length >= coordinates.length) {
         setCoordinates(parsed.coordinates);
+      }
+      if (Array.isArray(parsed.segmentStartIndices)) {
+        setSegmentStartIndices(parsed.segmentStartIndices);
       }
     }
 
@@ -530,6 +561,7 @@ export function useTracking() {
     totalPausedMsRef.current = 0;
     pauseStartedAtRef.current = null;
     await AsyncStorage.removeItem(ACTIVE_RIDE_KEY);
+    setSegmentStartIndices([]);
     setState('idle');
   }, []);
 
@@ -571,5 +603,6 @@ export function useTracking() {
     reset,
     getStartTime,
     getCurrentPosition,
+    segmentStartIndices,
   };
 }
