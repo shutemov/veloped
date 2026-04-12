@@ -3,7 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Coordinate, TrackingState } from '../types';
+import { ActiveRideData, Coordinate, TrackingState } from '../types';
 import { calculateTotalDistance } from '../utils/haversine';
 import { LOCATION_TASK_NAME, ACTIVE_RIDE_KEY } from '../tasks/locationTask';
 import { useGpsAccuracy } from './useGpsAccuracy';
@@ -41,13 +41,36 @@ export function useTracking() {
   const [isSimulating, setIsSimulating] = React.useState(false);
 
   const startTimeRef = React.useRef<number | null>(null);
+  const totalPausedMsRef = React.useRef(0);
+  const pauseStartedAtRef = React.useRef<number | null>(null);
   const timerRef = React.useRef<NodeJS.Timeout | null>(null);
   const locationSubscriptionRef = React.useRef<Location.LocationSubscription | null>(null);
   const simulationTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const appStateRef = React.useRef<AppStateStatus>(AppState.currentState);
+  const stateRef = React.useRef<TrackingState>('idle');
+
+  React.useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const computeActiveMs = React.useCallback(() => {
+    if (startTimeRef.current == null) return 0;
+    const now = Date.now();
+    const openPauseMs =
+      pauseStartedAtRef.current != null ? Math.max(0, now - pauseStartedAtRef.current) : 0;
+    return Math.max(0, now - startTimeRef.current - totalPausedMsRef.current - openPauseMs);
+  }, []);
+
+  const computeActiveSeconds = React.useCallback(
+    () => Math.floor(computeActiveMs() / 1000),
+    [computeActiveMs]
+  );
 
   const handleGpsLocation = React.useCallback(
     (location: Location.LocationObject) => {
+      if (stateRef.current !== 'tracking') {
+        return;
+      }
       applyGpsLocation(location);
       const coord = locationToCoordinate(location);
       setCoordinates((prev) => [...prev, coord]);
@@ -59,11 +82,7 @@ export function useTracking() {
     const raw = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
     if (!raw) return null;
     try {
-      const parsed = JSON.parse(raw) as {
-        coordinates?: Coordinate[];
-        startTime?: number;
-        lastGpsAccuracyMeters?: number | null;
-      };
+      const parsed = JSON.parse(raw) as ActiveRideData;
       if (
         typeof parsed.startTime !== 'number' ||
         !Array.isArray(parsed.coordinates) ||
@@ -71,62 +90,134 @@ export function useTracking() {
       ) {
         return null;
       }
-      return parsed as {
-        coordinates: Coordinate[];
-        startTime: number;
-        lastGpsAccuracyMeters?: number | null;
-      };
+      return parsed;
     } catch {
       return null;
     }
   }, []);
 
-  const attachForegroundWatch = React.useCallback(() => {
+  const upsertActiveRideMeta = React.useCallback(
+    async (patch: Partial<ActiveRideData>) => {
+      const active = await readActiveRideFromStorage();
+      if (!active) return;
+      await AsyncStorage.setItem(
+        ACTIVE_RIDE_KEY,
+        JSON.stringify({
+          ...active,
+          ...patch,
+        } satisfies ActiveRideData)
+      );
+    },
+    [readActiveRideFromStorage]
+  );
+
+  const attachForegroundWatch = React.useCallback(async () => {
     if (locationSubscriptionRef.current) {
       return;
     }
-    void (async () => {
-      try {
-        locationSubscriptionRef.current = await Location.watchPositionAsync(
-          GPS_OPTIONS,
-          handleGpsLocation
-        );
-      } catch (e) {
-        console.error('watchPositionAsync failed after restore:', e);
-      }
-    })();
+    try {
+      locationSubscriptionRef.current = await Location.watchPositionAsync(
+        GPS_OPTIONS,
+        handleGpsLocation
+      );
+    } catch (e) {
+      console.error('watchPositionAsync failed after restore:', e);
+    }
   }, [handleGpsLocation]);
+
+  const detachForegroundWatch = React.useCallback(() => {
+    if (locationSubscriptionRef.current) {
+      locationSubscriptionRef.current.remove();
+      locationSubscriptionRef.current = null;
+    }
+  }, []);
+
+  const startBackgroundUpdates = React.useCallback(async () => {
+    const isTaskRunning = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+    if (isTaskRunning) {
+      return;
+    }
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+      accuracy: Location.Accuracy.High,
+      distanceInterval: GPS_OPTIONS.distanceInterval,
+      timeInterval: GPS_OPTIONS.timeInterval,
+      foregroundService: {
+        notificationTitle: 'Veloped',
+        notificationBody: 'Запись маршрута...',
+        notificationColor: '#4CAF50',
+      },
+      pausesUpdatesAutomatically: false,
+      showsBackgroundLocationIndicator: true,
+    });
+  }, []);
+
+  const stopBackgroundUpdates = React.useCallback(async () => {
+    const isTaskRunning = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+    if (isTaskRunning) {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    }
+  }, []);
+
+  const startDurationTimer = React.useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    timerRef.current = setInterval(() => {
+      setDurationSeconds(computeActiveSeconds());
+    }, 1000);
+  }, [computeActiveSeconds]);
 
   /** После убийства процесса / холодного старта: трек в AsyncStorage, UI — пустой, пока не подтянем. */
   const hydrateActiveRideIfNeeded = React.useCallback(async () => {
     try {
-      const updatesStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
-      if (!updatesStarted) {
-        return;
-      }
       const active = await readActiveRideFromStorage();
       if (!active) {
         return;
       }
       startTimeRef.current = active.startTime;
+      totalPausedMsRef.current = active.totalPausedMs ?? 0;
+      pauseStartedAtRef.current =
+        active.isPaused && typeof active.pauseStartedAt === 'number'
+          ? active.pauseStartedAt
+          : null;
       setCoordinates(active.coordinates);
-      setDurationSeconds(Math.max(0, Math.floor((Date.now() - active.startTime) / 1000)));
+      setDurationSeconds(computeActiveSeconds());
       seedGpsFromStoredAccuracy(active.lastGpsAccuracyMeters);
       startDurationTimer();
-      attachForegroundWatch();
+
+      if (active.isPaused) {
+        setState('paused');
+        return;
+      }
+
       setState('tracking');
+
+      const updatesStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (updatesStarted) {
+        await attachForegroundWatch();
+      } else {
+        await attachForegroundWatch();
+        await startBackgroundUpdates();
+      }
     } catch (e) {
       console.error('hydrateActiveRideIfNeeded failed:', e);
     }
-  }, [attachForegroundWatch, readActiveRideFromStorage, seedGpsFromStoredAccuracy]);
+  }, [
+    attachForegroundWatch,
+    computeActiveSeconds,
+    readActiveRideFromStorage,
+    seedGpsFromStoredAccuracy,
+    startBackgroundUpdates,
+    startDurationTimer,
+  ]);
 
   React.useEffect(() => {
-    checkPermissions();
+    void checkPermissions();
     void hydrateActiveRideIfNeeded();
     return () => {
-      cleanup();
+      void cleanup();
     };
-  }, []);
+  }, [hydrateActiveRideIfNeeded]);
 
   React.useEffect(() => {
     if (coordinates.length > 0) {
@@ -163,10 +254,10 @@ export function useTracking() {
     return () => sub.remove();
   }, [state, isSimulating, readActiveRideFromStorage, seedGpsFromStoredAccuracy]);
 
-  const checkPermissions = async () => {
+  const checkPermissions = React.useCallback(async () => {
     const { status } = await Location.getForegroundPermissionsAsync();
     setPermissionStatus(status === 'granted' ? 'granted' : 'undetermined');
-  };
+  }, []);
 
   const requestPermissions = async (): Promise<boolean> => {
     const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
@@ -206,17 +297,6 @@ export function useTracking() {
   const getCurrentPosition = async (): Promise<Coordinate | null> => {
     const location = await fetchLocationObject();
     return location ? locationToCoordinate(location) : null;
-  };
-
-  const startDurationTimer = () => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-    timerRef.current = setInterval(() => {
-      if (startTimeRef.current) {
-        setDurationSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
-      }
-    }, 1000);
   };
 
   const buildDemoRoute = (start: Coordinate): Coordinate[] => {
@@ -271,6 +351,8 @@ export function useTracking() {
     const initialLocation = locationToCoordinate(initialLocObj);
 
     startTimeRef.current = Date.now();
+    totalPausedMsRef.current = 0;
+    pauseStartedAtRef.current = null;
     const initialCoords = [initialLocation];
     setCoordinates(initialCoords);
     setCurrentLocation(initialLocation);
@@ -283,32 +365,28 @@ export function useTracking() {
         coordinates: initialCoords,
         startTime: startTimeRef.current,
         lastGpsAccuracyMeters: initialLocObj.coords.accuracy ?? null,
+        isPaused: false,
+        totalPausedMs: 0,
+        pauseStartedAt: null,
       })
     );
 
-    locationSubscriptionRef.current = await Location.watchPositionAsync(
-      GPS_OPTIONS,
-      handleGpsLocation
-    );
-
-    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-      accuracy: Location.Accuracy.High,
-      distanceInterval: GPS_OPTIONS.distanceInterval,
-      timeInterval: GPS_OPTIONS.timeInterval,
-      foregroundService: {
-        notificationTitle: 'Veloped',
-        notificationBody: 'Запись маршрута...',
-        notificationColor: '#4CAF50',
-      },
-      pausesUpdatesAutomatically: false,
-      showsBackgroundLocationIndicator: true,
-    });
+    await attachForegroundWatch();
+    await startBackgroundUpdates();
 
     startDurationTimer();
 
     setState('tracking');
     return true;
-  }, [state, resetGpsAccuracy, fetchLocationObject, applyGpsLocation, handleGpsLocation]);
+  }, [
+    state,
+    resetGpsAccuracy,
+    fetchLocationObject,
+    applyGpsLocation,
+    attachForegroundWatch,
+    startBackgroundUpdates,
+    startDurationTimer,
+  ]);
 
   const startSimulation = React.useCallback(async (): Promise<boolean> => {
     if (state !== 'idle') return false;
@@ -327,6 +405,8 @@ export function useTracking() {
     const simulatedCoords: Coordinate[] = [];
 
     startTimeRef.current = Date.now();
+    totalPausedMsRef.current = 0;
+    pauseStartedAtRef.current = null;
     setCoordinates([]);
     setCurrentLocation(initialLocation);
     setDistanceKm(0);
@@ -361,6 +441,9 @@ export function useTracking() {
         JSON.stringify({
           coordinates: simulatedCoords,
           startTime: startTimeRef.current,
+          isPaused: false,
+          totalPausedMs: 0,
+          pauseStartedAt: null,
         })
       );
     }, 1000);
@@ -368,58 +451,105 @@ export function useTracking() {
     return true;
   }, [state, resetGpsAccuracy]);
 
-  const stop = React.useCallback(async () => {
-    if (state !== 'tracking') return;
+  const pause = React.useCallback(async () => {
+    if (state !== 'tracking' || isSimulating) return;
 
-    cleanup();
+    pauseStartedAtRef.current = Date.now();
+    setState('paused');
+    setDurationSeconds(computeActiveSeconds());
+    detachForegroundWatch();
+    await stopBackgroundUpdates();
+    await upsertActiveRideMeta({
+      isPaused: true,
+      totalPausedMs: totalPausedMsRef.current,
+      pauseStartedAt: pauseStartedAtRef.current,
+    });
+  }, [
+    state,
+    isSimulating,
+    computeActiveSeconds,
+    detachForegroundWatch,
+    stopBackgroundUpdates,
+    upsertActiveRideMeta,
+  ]);
+
+  const resume = React.useCallback(async () => {
+    if (state !== 'paused' || isSimulating) return;
+
+    if (pauseStartedAtRef.current != null) {
+      totalPausedMsRef.current += Math.max(0, Date.now() - pauseStartedAtRef.current);
+    }
+    pauseStartedAtRef.current = null;
+    setDurationSeconds(computeActiveSeconds());
+    setState('tracking');
+
+    await upsertActiveRideMeta({
+      isPaused: false,
+      totalPausedMs: totalPausedMsRef.current,
+      pauseStartedAt: null,
+    });
+    await attachForegroundWatch();
+    await startBackgroundUpdates();
+  }, [
+    state,
+    isSimulating,
+    computeActiveSeconds,
+    upsertActiveRideMeta,
+    attachForegroundWatch,
+    startBackgroundUpdates,
+  ]);
+
+  const stop = React.useCallback(async () => {
+    if (state !== 'tracking' && state !== 'paused') return;
+
+    const finalDurationSeconds = computeActiveSeconds();
+
+    await cleanup();
     setIsSimulating(false);
+    setDurationSeconds(finalDurationSeconds);
 
     const storedData = await AsyncStorage.getItem(ACTIVE_RIDE_KEY);
     if (storedData) {
-      const parsed = JSON.parse(storedData);
-      if (parsed.coordinates && parsed.coordinates.length > coordinates.length) {
+      const parsed = JSON.parse(storedData) as ActiveRideData;
+      if (Array.isArray(parsed.coordinates) && parsed.coordinates.length > coordinates.length) {
         setCoordinates(parsed.coordinates);
       }
     }
 
     setState('finished');
-  }, [state, coordinates.length, isSimulating]);
+  }, [state, coordinates.length, computeActiveSeconds]);
 
   const reset = React.useCallback(async () => {
-    cleanup();
+    await cleanup();
     setCoordinates([]);
     setDistanceKm(0);
     setDurationSeconds(0);
     setCurrentLocation(null);
     setIsSimulating(false);
     startTimeRef.current = null;
+    totalPausedMsRef.current = 0;
+    pauseStartedAtRef.current = null;
     await AsyncStorage.removeItem(ACTIVE_RIDE_KEY);
     setState('idle');
   }, []);
 
-  const cleanup = async () => {
+  const cleanup = React.useCallback(async () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
 
-    if (locationSubscriptionRef.current) {
-      locationSubscriptionRef.current.remove();
-      locationSubscriptionRef.current = null;
-    }
+    detachForegroundWatch();
 
     if (simulationTimerRef.current) {
       clearInterval(simulationTimerRef.current);
       simulationTimerRef.current = null;
     }
 
-    const isTaskRunning = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
-    if (isTaskRunning) {
-      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-    }
+    await stopBackgroundUpdates();
 
     resetGpsAccuracy();
-  };
+  }, [detachForegroundWatch, stopBackgroundUpdates, resetGpsAccuracy]);
 
   const getStartTime = React.useCallback(() => startTimeRef.current, []);
 
@@ -435,6 +565,8 @@ export function useTracking() {
     isSimulating,
     start,
     startSimulation,
+    pause,
+    resume,
     stop,
     reset,
     getStartTime,

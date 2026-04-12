@@ -44,6 +44,8 @@ export function MapScreen() {
     isSimulating,
     start,
     startSimulation,
+    pause,
+    resume,
     stop,
     reset,
     getStartTime,
@@ -170,7 +172,7 @@ export function MapScreen() {
         id: `ride_${startTime}`,
         startTime,
         endTime: Date.now(),
-        durationSeconds: Math.max(0, Math.floor((Date.now() - startTime) / 1000)),
+        durationSeconds,
         distanceKm: calculateTotalDistance(coordinates),
         coordinates,
         source: 'recorded',
@@ -188,7 +190,7 @@ export function MapScreen() {
     };
 
     void run();
-  }, [state, coordinates, getStartTime, saveRide, reset]);
+  }, [state, coordinates, getStartTime, saveRide, reset, durationSeconds]);
 
   const initializeLocation = async () => {
     const location = await getCurrentPosition();
@@ -248,6 +250,17 @@ export function MapScreen() {
   };
 
   const handleStop = () => {
+    if (state === 'paused') {
+      Alert.alert(
+        'Завершить поездку?',
+        'Поездка сейчас на паузе. Завершить её и сохранить в историю?',
+        [
+          { text: 'Отмена', style: 'cancel' },
+          { text: 'Завершить поездку', style: 'destructive', onPress: () => stop() },
+        ]
+      );
+      return;
+    }
     stop();
   };
 
@@ -368,7 +381,10 @@ export function MapScreen() {
         <TrackingButton
           state={state}
           onStart={handleStart}
+          onPause={() => void pause()}
+          onResume={() => void resume()}
           onStop={handleStop}
+          canPause={!isSimulating}
           disabled={permissionStatus === 'denied'}
         />
       </View>

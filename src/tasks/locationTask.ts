@@ -1,17 +1,10 @@
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Coordinate } from '../types';
+import { Coordinate, ActiveRideData } from '../types';
 
 export const LOCATION_TASK_NAME = 'veloped-background-location';
 export const ACTIVE_RIDE_KEY = '@veloped/activeRide';
-
-interface ActiveRideData {
-  coordinates: Coordinate[];
-  startTime: number;
-  /** Последняя известная горизонтальная точность (м), из фоновых обновлений. */
-  lastGpsAccuracyMeters?: number | null;
-}
 
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   if (error) {
@@ -28,6 +21,10 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         let activeRide: ActiveRideData = storedData
           ? JSON.parse(storedData)
           : { coordinates: [], startTime: Date.now() };
+
+        if (activeRide.isPaused) {
+          return;
+        }
 
         const newCoordinates: Coordinate[] = locations.map((loc) => ({
           latitude: loc.coords.latitude,

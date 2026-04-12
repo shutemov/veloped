@@ -28,4 +28,17 @@ export interface Ride {
   importBatchId?: string;
 }
 
-export type TrackingState = 'idle' | 'tracking' | 'finished';
+export interface ActiveRideData {
+  coordinates: Coordinate[];
+  startTime: number;
+  /** Последняя известная горизонтальная точность (м). */
+  lastGpsAccuracyMeters?: number | null;
+  /** Признак ручной паузы активной поездки. */
+  isPaused?: boolean;
+  /** Накопленное время паузы в миллисекундах. */
+  totalPausedMs?: number;
+  /** Время начала текущей незакрытой паузы. */
+  pauseStartedAt?: number | null;
+}
+
+export type TrackingState = 'idle' | 'tracking' | 'paused' | 'finished';

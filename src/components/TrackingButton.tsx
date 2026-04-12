@@ -11,14 +11,20 @@ import { TrackingState } from '../types';
 interface TrackingButtonProps {
   state: TrackingState;
   onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
   onStop: () => void;
+  canPause?: boolean;
   disabled?: boolean;
 }
 
 export function TrackingButton({
   state,
   onStart,
+  onPause,
+  onResume,
   onStop,
+  canPause = true,
   disabled,
 }: TrackingButtonProps) {
   if (state === 'idle') {
@@ -35,12 +41,29 @@ export function TrackingButton({
 
   if (state === 'tracking') {
     return (
-      <TouchableOpacity
-        style={[styles.button, styles.stopButton]}
-        onPress={onStop}
-      >
-        <Text style={styles.buttonText}>Стоп</Text>
-      </TouchableOpacity>
+      <View style={styles.row}>
+        {canPause && (
+          <TouchableOpacity style={[styles.button, styles.pauseButton]} onPress={onPause}>
+            <Text style={styles.buttonText}>Пауза</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={[styles.button, styles.stopButton]} onPress={onStop}>
+          <Text style={styles.buttonText}>Стоп</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (state === 'paused') {
+    return (
+      <View style={styles.row}>
+        <TouchableOpacity style={[styles.button, styles.resumeButton]} onPress={onResume}>
+          <Text style={styles.buttonText}>Продолжить</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.button, styles.stopButton]} onPress={onStop}>
+          <Text style={styles.buttonText}>Стоп</Text>
+        </TouchableOpacity>
+      </View>
     );
   }
 
@@ -55,14 +78,24 @@ export function TrackingButton({
 const styles = StyleSheet.create({
   button: {
     paddingVertical: 16,
-    paddingHorizontal: 48,
+    paddingHorizontal: 32,
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 140,
+    minWidth: 130,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 10,
   },
   startButton: {
     backgroundColor: '#4CAF50',
+  },
+  pauseButton: {
+    backgroundColor: '#FF9800',
+  },
+  resumeButton: {
+    backgroundColor: '#2E7D32',
   },
   stopButton: {
     backgroundColor: '#f44336',
