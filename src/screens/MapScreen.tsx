@@ -12,7 +12,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { OSMView, OSMViewRef } from 'expo-osm-sdk';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTracking } from '../hooks/useTracking';
-import { useImuTracking } from '../hooks/useImuTracking';
 import { useRides } from '../hooks/useRides';
 import { StatsBar } from '../components/StatsBar';
 import { TrackingButton } from '../components/TrackingButton';
@@ -43,36 +42,17 @@ export function MapScreen() {
     currentLocation,
     permissionStatus,
     isSimulating,
-    isBridging,
     start,
     startSimulation,
     stop,
     reset,
     getStartTime,
     getCurrentPosition,
-    getLastFinishedTrackingMode,
     gpsAccuracyMeters,
     gpsQualityZone,
   } = useTracking();
 
   const { saveRide } = useRides();
-  const {
-    status: imuStatus,
-    lastSample: imuLastSample,
-    lastSampleAt: imuLastSampleAt,
-    sampleCount: imuSampleCount,
-    gyroscopeStatus,
-    gyroscopeLastSample,
-    gyroscopeLastSampleAt,
-    gyroscopeSampleCount,
-    magnetometerStatus,
-    magnetometerLastSample,
-    magnetometerLastSampleAt,
-    magnetometerSampleCount,
-    start: startImu,
-    stop: stopImu,
-    isRunning: isImuRunning,
-  } = useImuTracking();
   const cameraRef = React.useRef<OSMViewRef>(null);
   const [initialRegion, setInitialRegion] = React.useState<{
     latitude: number;
@@ -193,8 +173,7 @@ export function MapScreen() {
         durationSeconds: Math.max(0, Math.floor((Date.now() - startTime) / 1000)),
         distanceKm: calculateTotalDistance(coordinates),
         coordinates,
-        source:
-          getLastFinishedTrackingMode() === 'imu' ? 'imu_dev' : 'recorded',
+        source: 'recorded',
       };
 
       try {
@@ -209,7 +188,7 @@ export function MapScreen() {
     };
 
     void run();
-  }, [state, coordinates, getStartTime, getLastFinishedTrackingMode, saveRide, reset]);
+  }, [state, coordinates, getStartTime, saveRide, reset]);
 
   const initializeLocation = async () => {
     const location = await getCurrentPosition();
@@ -272,53 +251,10 @@ export function MapScreen() {
     stop();
   };
 
-  const handleToggleImu = async () => {
-    if (isImuRunning) {
-      stopImu();
-      return;
-    }
-
-    const started = await startImu();
-    if (!started) {
-      Alert.alert('IMU недоступен', 'Акселерометр, гироскоп и магнитометр недоступны.');
-    }
-  };
-
-  const imuStatusLabel =
-    imuStatus === 'off'
-      ? 'off'
-      : imuStatus === 'listening'
-      ? 'listening'
-      : 'no_data';
-  const imuLastSampleTimeText = imuLastSampleAt
-    ? new Date(imuLastSampleAt).toLocaleTimeString()
-    : '—';
-  const gyroStatusLabel =
-    gyroscopeStatus === 'off'
-      ? 'off'
-      : gyroscopeStatus === 'listening'
-      ? 'listening'
-      : 'no_data';
-  const gyroLastSampleTimeText = gyroscopeLastSampleAt
-    ? new Date(gyroscopeLastSampleAt).toLocaleTimeString()
-    : '—';
-  const magnetometerStatusLabel =
-    magnetometerStatus === 'off'
-      ? 'off'
-      : magnetometerStatus === 'listening'
-      ? 'listening'
-      : 'no_data';
-  const magnetometerLastSampleTimeText = magnetometerLastSampleAt
-    ? new Date(magnetometerLastSampleAt).toLocaleTimeString()
-    : '—';
-
-  // Разбиваем трек на сегменты GPS и IMU для разной окраски
-  const gpsCoords = coordinates
-    .filter((c) => c.source !== 'imu')
-    .map((c) => ({ latitude: c.latitude, longitude: c.longitude }));
-  const imuCoords = coordinates
-    .filter((c) => c.source === 'imu')
-    .map((c) => ({ latitude: c.latitude, longitude: c.longitude }));
+  const routeCoords = coordinates.map((c) => ({
+    latitude: c.latitude,
+    longitude: c.longitude,
+  }));
 
   if (!initialRegion) {
     return (
@@ -350,28 +286,18 @@ export function MapScreen() {
               ]
             : []
         }
-        polylines={[
-          ...(gpsCoords.length > 1
+        polylines={
+          routeCoords.length > 1
             ? [
                 {
-                  id: 'route-gps',
-                  coordinates: gpsCoords,
+                  id: 'route',
+                  coordinates: routeCoords,
                   strokeColor: '#4CAF50',
                   strokeWidth: 4,
                 },
               ]
-            : []),
-          ...(imuCoords.length > 1
-            ? [
-                {
-                  id: 'route-imu',
-                  coordinates: imuCoords,
-                  strokeColor: '#9E9E9E',
-                  strokeWidth: 3,
-                },
-              ]
-            : []),
-        ]}
+            : []
+        }
       />
 
       <View style={styles.overlay}>
@@ -381,14 +307,6 @@ export function MapScreen() {
           topInset={insets.top}
         />
       </View>
-
-      {/* Индикатор IMU-моста */}
-      {isBridging && (
-        <View style={styles.bridgeBadge}>
-          <Ionicons name="navigate-circle-outline" size={14} color="#fff" />
-          <Text style={styles.bridgeBadgeText}>IMU</Text>
-        </View>
-      )}
 
       <View
         style={[
@@ -424,50 +342,13 @@ export function MapScreen() {
 
       <View style={[styles.buttonContainer, { bottom: 24 + insets.bottom }]}>
         {__DEV__ && (
-          <View style={styles.imuPanel}>
-            <Text style={styles.imuTitle}>GPS</Text>
-            <Text style={styles.imuText}>
+          <View style={styles.devPanel}>
+            <Text style={styles.devTitle}>GPS</Text>
+            <Text style={styles.devText}>
               accuracy (m):{' '}
               {gpsAccuracyMeters != null ? gpsAccuracyMeters.toFixed(1) : '—'}
             </Text>
-            <Text style={styles.imuText}>zone: {gpsQualityZone}</Text>
-            <Text style={styles.imuText}>bridge: {isBridging ? 'ON' : 'off'}</Text>
-            <Text style={[styles.imuTitle, styles.imuSensorSpacer]}>IMU debug</Text>
-            <Text style={styles.imuText}>acc status: {imuStatusLabel}</Text>
-            <Text style={styles.imuText}>acc samples: {imuSampleCount}</Text>
-            <Text style={styles.imuText}>acc last: {imuLastSampleTimeText}</Text>
-            <Text style={styles.imuText}>
-              acc x/y/z:{' '}
-              {imuLastSample
-                ? `${imuLastSample.x.toFixed(3)} / ${imuLastSample.y.toFixed(3)} / ${imuLastSample.z.toFixed(3)}`
-                : '—'}
-            </Text>
-            <Text style={[styles.imuText, styles.imuSensorSpacer]}>gyro status: {gyroStatusLabel}</Text>
-            <Text style={styles.imuText}>gyro samples: {gyroscopeSampleCount}</Text>
-            <Text style={styles.imuText}>gyro last: {gyroLastSampleTimeText}</Text>
-            <Text style={styles.imuText}>
-              gyro x/y/z:{' '}
-              {gyroscopeLastSample
-                ? `${gyroscopeLastSample.x.toFixed(3)} / ${gyroscopeLastSample.y.toFixed(3)} / ${gyroscopeLastSample.z.toFixed(3)}`
-                : '—'}
-            </Text>
-            <Text style={[styles.imuText, styles.imuSensorSpacer]}>mag status: {magnetometerStatusLabel}</Text>
-            <Text style={styles.imuText}>mag samples: {magnetometerSampleCount}</Text>
-            <Text style={styles.imuText}>mag last: {magnetometerLastSampleTimeText}</Text>
-            <Text style={styles.imuText}>
-              mag x/y/z:{' '}
-              {magnetometerLastSample
-                ? `${magnetometerLastSample.x.toFixed(3)} / ${magnetometerLastSample.y.toFixed(3)} / ${magnetometerLastSample.z.toFixed(3)}`
-                : '—'}
-            </Text>
-            <TouchableOpacity
-              style={[styles.imuButton, isImuRunning && styles.imuButtonStop]}
-              onPress={handleToggleImu}
-            >
-              <Text style={styles.imuButtonText}>
-                {isImuRunning ? 'IMU Stop' : 'IMU Start'}
-              </Text>
-            </TouchableOpacity>
+            <Text style={styles.devText}>zone: {gpsQualityZone}</Text>
           </View>
         )}
         {__DEV__ && (
@@ -538,25 +419,6 @@ const styles = StyleSheet.create({
   locateFabDisabled: {
     opacity: 0.45,
   },
-  bridgeBadge: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FF6F00',
-    paddingVertical: 4,
-    zIndex: 10,
-  },
-  bridgeBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
   demoButton: {
     paddingVertical: 12,
     paddingHorizontal: 20,
@@ -572,7 +434,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  imuPanel: {
+  devPanel: {
     width: 260,
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -582,35 +444,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
   },
-  imuTitle: {
+  devTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: '#222',
     marginBottom: 6,
   },
-  imuText: {
+  devText: {
     fontSize: 12,
     color: '#333',
     marginBottom: 2,
-  },
-  imuSensorSpacer: {
-    marginTop: 6,
-  },
-  imuButton: {
-    marginTop: 8,
-    borderRadius: 10,
-    backgroundColor: '#2E7D32',
-    paddingVertical: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imuButtonStop: {
-    backgroundColor: '#c62828',
-  },
-  imuButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 13,
   },
   disabled: {
     backgroundColor: '#ccc',

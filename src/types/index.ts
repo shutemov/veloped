@@ -2,11 +2,11 @@ export interface Coordinate {
   latitude: number;
   longitude: number;
   timestamp: number;
-  /** Источник точки: GPS-фикс или IMU-экстраполяция. */
-  source?: 'gps' | 'imu';
+  /** Источник точки при записи с устройства. */
+  source?: 'gps';
 }
 
-export type RideSource = 'recorded' | 'imported' | 'imu_dev';
+export type RideSource = 'recorded' | 'imported';
 
 /** Как пришёл импорт: одна поездка или пакетный экспорт «все маршруты». */
 export type ImportKind = 'single_track' | 'bundle_all';

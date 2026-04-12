@@ -12,7 +12,7 @@ export type { GpsQualityZone, GpsAccuracyHysteresisConfig };
 type UseGpsAccuracyOptions = Partial<GpsAccuracyHysteresisConfig>;
 
 /**
- * Состояние точности GPS и зоны качества (для гибрида с IMU и отдельных экранов).
+ * Состояние точности GPS и зоны качества (индикатор на карте и логика debounce).
  * В `useTracking` тот же колбэк `applyLocation` вызывается из существующего watch, без второй подписки.
  *
  * Debounce: переход uncertain → reliable происходит только после
