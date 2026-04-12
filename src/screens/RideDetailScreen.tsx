@@ -24,11 +24,12 @@ import { haversineDistance } from '../utils/haversine';
 import type { Coordinate } from '../types';
 import {
   prepareRideRouteGeometry,
-  buildSegmentBoundaryMarkers,
+  buildLogicalSegmentBoundaryMarkers,
   calculateRouteFitZoom,
   RIDE_ROUTE_HEAVY_POINT_THRESHOLD,
   type PreparedRouteGeometry,
 } from '../utils/prepareRideRouteGeometry';
+import { useRasterizedMapMarkers } from '../hooks/useRasterizedMapMarkers';
 import { buildDetailSegmentPolylines } from '../utils/rideSegments';
 import { RideDetailInfoSheet } from '../components/RideDetailInfoSheet';
 
@@ -266,7 +267,6 @@ export function RideDetailScreen() {
 
   const normalizedCoords = routeGeometry?.normalizedCoords ?? [];
   const polylineCoords = routeGeometry?.polylineCoords ?? [];
-  const routeMarkers = routeGeometry?.routeMarkers ?? [];
   const routeBounds = routeGeometry?.routeBounds ?? null;
   const routeRegion = routeGeometry?.routeRegion ?? null;
   const fallbackRouteZoom = routeGeometry?.routeZoom ?? 14;
@@ -305,15 +305,20 @@ export function RideDetailScreen() {
   }, [detailSegmentPolylines, polylineCoords]);
 
   /** На маршруте с паузами маркеры по полному треку и границам отрезков, а не только по прореженной линии. */
-  const mapMarkers = React.useMemo(() => {
+  const logicalMapMarkers = React.useMemo(() => {
     if (!ride) {
       return [];
     }
     if (isOutlierFilterEnabled || !ride.segmentStartIndices?.length) {
-      return routeMarkers;
+      if (!routeGeometry) {
+        return [];
+      }
+      return routeGeometry.logicalMarkers;
     }
-    return buildSegmentBoundaryMarkers(ride.coordinates, ride.segmentStartIndices);
-  }, [ride, isOutlierFilterEnabled, routeMarkers]);
+    return buildLogicalSegmentBoundaryMarkers(ride.coordinates, ride.segmentStartIndices);
+  }, [ride, isOutlierFilterEnabled, routeGeometry]);
+
+  const { markers: mapMarkers } = useRasterizedMapMarkers(logicalMapMarkers);
 
   const isHeavyRouteLoading =
     ride != null &&

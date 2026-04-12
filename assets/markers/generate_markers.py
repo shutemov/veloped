@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Генерация PNG маркеров. Нужен Roboto-Regular.ttf (кириллица). Запуск: python generate_markers.py"""
+"""Генерация базовых PNG (fallback). Нужен Roboto-Regular.ttf (кириллица). Запуск: python generate_markers.py"""
 from __future__ import annotations
 
 from pathlib import Path

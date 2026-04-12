@@ -1,15 +1,7 @@
-import { Image } from 'react-native';
 import type { MarkerConfig } from 'expo-osm-sdk';
 import type { Coordinate } from '../types';
+import type { LogicalMapMarker, SegmentRasterSpec } from '../types/segmentMarkers';
 import { splitCoordinatesIntoSegments } from './rideSegments';
-
-/**
- * Цветные PNG — expo-osm-sdk на Android красит маркер только при `icon.uri`;
- * на iOS SF Symbols без `.alwaysTemplate` игнорируют `icon.color` (пин остаётся красным).
- */
-const ROUTE_PIN_START_URI = Image.resolveAssetSource(require('../../assets/markers/pin-start.png')).uri;
-const ROUTE_PIN_END_URI = Image.resolveAssetSource(require('../../assets/markers/pin-end.png')).uri;
-const ROUTE_PIN_SINGLE_URI = Image.resolveAssetSource(require('../../assets/markers/pin-single.png')).uri;
 
 export type NormalizedCoord = {
   latitude: number;
@@ -24,7 +16,8 @@ export type RouteMarker = MarkerConfig;
 export type PreparedRouteGeometry = {
   normalizedCoords: NormalizedCoord[];
   polylineCoords: { latitude: number; longitude: number }[];
-  routeMarkers: MarkerConfig[];
+  /** Маркеры для растеризации через {@link useRasterizedMapMarkers} (не для прямой передачи в карту). */
+  logicalMarkers: LogicalMapMarker[];
   routeBounds: {
     minLat: number;
     maxLat: number;
@@ -52,12 +45,8 @@ function coordsAlmostEqual(
   return Math.abs(a.latitude - b.latitude) < eps && Math.abs(a.longitude - b.longitude) < eps;
 }
 
-/**
- * На границе отрезков «финиш N» и «старт N+1» часто в одной точке; два маркера совпадают
- * и верхний по z-index скрывает нижний — объединяем в один маркер.
- */
-function mergeCoincidentSegmentBoundaryMarkers(markers: MarkerConfig[]): MarkerConfig[] {
-  const out: MarkerConfig[] = [];
+function mergeCoincidentLogicalSegmentMarkers(markers: LogicalMapMarker[]): LogicalMapMarker[] {
+  const out: LogicalMapMarker[] = [];
   for (let i = 0; i < markers.length; i++) {
     const cur = markers[i]!;
     const next = markers[i + 1];
@@ -71,11 +60,12 @@ function mergeCoincidentSegmentBoundaryMarkers(markers: MarkerConfig[]): MarkerC
     ) {
       const n = Number(endMatch[1]);
       const m = Number(startMatch[1]);
+      const spec: SegmentRasterSpec = { kind: 'boundary', finishN: n, startN: m };
       out.push({
         id: `route_seg_boundary_${n}_${m}`,
         coordinate: cur.coordinate,
-        title: `Финиш ${n} · Старт ${m}`,
-        icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+        title: `Финиш #${n} · Старт #${m}`,
+        rasterSpec: spec,
         zIndex: Math.max(cur.zIndex ?? 0, next.zIndex ?? 0),
       });
       i += 1;
@@ -142,34 +132,34 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
     longitude: c.longitude,
   }));
 
-  let routeMarkers: MarkerConfig[] = [];
+  let logicalMarkers: LogicalMapMarker[] = [];
   if (normalizedCoords.length > 0) {
     const start = normalizedCoords[0];
     const end = normalizedCoords[normalizedCoords.length - 1];
     if (normalizedCoords.length === 1) {
-      routeMarkers = [
+      logicalMarkers = [
         {
           id: 'single_point',
           coordinate: { latitude: start.latitude, longitude: start.longitude },
           title: 'Точка маршрута',
-          icon: { uri: ROUTE_PIN_SINGLE_URI, size: 120, anchor: { x: 0.5, y: 0.5 } },
+          rasterSpec: { kind: 'routePoint' },
           zIndex: 2,
         },
       ];
     } else {
-      routeMarkers = [
+      logicalMarkers = [
         {
           id: 'route_start',
           coordinate: { latitude: start.latitude, longitude: start.longitude },
-          title: 'Старт',
-          icon: { uri: ROUTE_PIN_START_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+          title: 'Старт #1',
+          rasterSpec: { kind: 'start', n: 1 },
           zIndex: 1,
         },
         {
           id: 'route_end',
           coordinate: { latitude: end.latitude, longitude: end.longitude },
-          title: 'Финиш',
-          icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+          title: 'Финиш #1',
+          rasterSpec: { kind: 'end', n: 1 },
           zIndex: 2,
         },
       ];
@@ -211,7 +201,7 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
   return {
     normalizedCoords,
     polylineCoords,
-    routeMarkers,
+    logicalMarkers,
     routeBounds,
     routeRegion,
     routeZoom,
@@ -220,12 +210,12 @@ export function prepareRideRouteGeometry(rideCoordinates: Coordinate[]): Prepare
 
 /**
  * Маркеры начала/конца каждого отрезка (после паузы) по полным координатам поездки.
- * Согласовано с {@link splitCoordinatesIntoSegments} и цветными полилиниями на деталях.
+ * Растеризация: {@link useRasterizedMapMarkers}.
  */
-export function buildSegmentBoundaryMarkers(
+export function buildLogicalSegmentBoundaryMarkers(
   rideCoordinates: Coordinate[],
   segmentStartIndices: number[] | undefined | null
-): MarkerConfig[] {
+): LogicalMapMarker[] {
   const segments = splitCoordinatesIntoSegments(rideCoordinates, segmentStartIndices);
   if (segments.length === 0) {
     return [];
@@ -242,7 +232,7 @@ export function buildSegmentBoundaryMarkers(
           id: 'route_single',
           coordinate: { latitude: start.latitude, longitude: start.longitude },
           title: 'Точка маршрута',
-          icon: { uri: ROUTE_PIN_SINGLE_URI, size: 120, anchor: { x: 0.5, y: 0.5 } },
+          rasterSpec: { kind: 'routePoint' },
           zIndex: 2,
         },
       ];
@@ -251,21 +241,21 @@ export function buildSegmentBoundaryMarkers(
       {
         id: 'route_start',
         coordinate: { latitude: start.latitude, longitude: start.longitude },
-        title: 'Старт',
-        icon: { uri: ROUTE_PIN_START_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+        title: 'Старт #1',
+        rasterSpec: { kind: 'start', n: 1 },
         zIndex: 1,
       },
       {
         id: 'route_end',
         coordinate: { latitude: end.latitude, longitude: end.longitude },
-        title: 'Финиш',
-        icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+        title: 'Финиш #1',
+        rasterSpec: { kind: 'end', n: 1 },
         zIndex: 2,
       },
     ];
   }
 
-  const markers: MarkerConfig[] = [];
+  const markers: LogicalMapMarker[] = [];
   segments.forEach((seg, i) => {
     const n = i + 1;
     if (seg.length === 0) return;
@@ -275,8 +265,8 @@ export function buildSegmentBoundaryMarkers(
       markers.push({
         id: `route_seg_${n}_point`,
         coordinate: { latitude: start.latitude, longitude: start.longitude },
-        title: `Отрезок ${n}`,
-        icon: { uri: ROUTE_PIN_SINGLE_URI, size: 120, anchor: { x: 0.5, y: 0.5 } },
+        title: `Отрезок #${n}`,
+        rasterSpec: { kind: 'segmentPoint', n },
         zIndex: 100 + n,
       });
       return;
@@ -284,17 +274,17 @@ export function buildSegmentBoundaryMarkers(
     markers.push({
       id: `route_seg_${n}_start`,
       coordinate: { latitude: start.latitude, longitude: start.longitude },
-      title: `Старт ${n}`,
-      icon: { uri: ROUTE_PIN_START_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+      title: `Старт #${n}`,
+      rasterSpec: { kind: 'start', n },
       zIndex: 100 + n * 2,
     });
     markers.push({
       id: `route_seg_${n}_end`,
       coordinate: { latitude: end.latitude, longitude: end.longitude },
-      title: `Финиш ${n}`,
-      icon: { uri: ROUTE_PIN_END_URI, size: 128, anchor: { x: 0.5, y: 0.5 } },
+      title: `Финиш #${n}`,
+      rasterSpec: { kind: 'end', n },
       zIndex: 101 + n * 2,
     });
   });
-  return mergeCoincidentSegmentBoundaryMarkers(markers);
+  return mergeCoincidentLogicalSegmentMarkers(markers);
 }
